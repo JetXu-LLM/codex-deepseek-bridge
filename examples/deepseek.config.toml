@@ -1,0 +1,13 @@
+model = "deepseek-v4-pro"
+model_provider = "deepseek_bridge"
+model_catalog_json = "/ABSOLUTE/PATH/TO/models.json"
+personality = "none"
+model_context_window = 1000000
+model_reasoning_effort = "high"
+model_reasoning_summary = "auto"
+model_supports_reasoning_summaries = true
+
+[model_providers.deepseek_bridge]
+name = "DeepSeek Codex Bridge"
+base_url = "http://127.0.0.1:8787/v1"
+wire_api = "responses"

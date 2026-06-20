@@ -1,0 +1,55 @@
+{
+  "name": "codex-deepseek-bridge",
+  "version": "0.1.0",
+  "description": "A tiny Responses-compatible local bridge that lets OpenAI Codex use DeepSeek LLM APIs.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Jet Xu",
+  "homepage": "https://github.com/JetXu-LLM/codex-deepseek-bridge#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JetXu-LLM/codex-deepseek-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JetXu-LLM/codex-deepseek-bridge/issues"
+  },
+  "keywords": [
+    "codex",
+    "deepseek",
+    "deepseek-v4",
+    "openai-codex",
+    "codex-cli",
+    "responses-api",
+    "llm-proxy",
+    "kv-cache",
+    "usage-report",
+    "agent",
+    "coding-agent",
+    "deepseek-api"
+  ],
+  "bin": {
+    "codex-deepseek-bridge": "./bin/codex-deepseek-bridge.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "docs",
+    "examples",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check bin/codex-deepseek-bridge.mjs && node --check src/*.mjs && node --check test/*.mjs",
+    "test": "node --test",
+    "start": "node ./bin/codex-deepseek-bridge.mjs serve",
+    "doctor": "node ./bin/codex-deepseek-bridge.mjs doctor",
+    "cache-report": "node ./bin/codex-deepseek-bridge.mjs cache-report",
+    "install:codex": "node ./bin/codex-deepseek-bridge.mjs install"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

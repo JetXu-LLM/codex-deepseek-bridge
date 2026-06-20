@@ -1,0 +1,14 @@
+node_modules/
+npm-debug.log*
+.DS_Store
+.env
+.env.*
+!.env.example
+coverage/
+dist/
+tmp/
+work/
+.codex-internal/
+*.pid
+*.log
+*.jsonl

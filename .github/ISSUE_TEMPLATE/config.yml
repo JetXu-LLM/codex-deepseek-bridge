@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security policy
+    url: https://github.com/JetXu-LLM/codex-deepseek-bridge/security/policy
+    about: Please do not disclose secrets, prompt payloads, or private logs in public issues.

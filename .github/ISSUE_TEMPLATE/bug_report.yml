@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a reproducible Codex DeepSeek Bridge bug.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not paste API keys, bearer tokens, full prompt payloads, or private logs.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include commands and the smallest reproducible setup.
+      placeholder: |
+        1. Run ...
+        2. Open ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: bridge-version
+    attributes:
+      label: Bridge version
+      placeholder: "0.1.0"
+  - type: input
+    id: codex-version
+    attributes:
+      label: Codex version
+      placeholder: "codex --version"
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - WSL
+        - Linux
+        - Other
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Paste only redacted metadata or error output. Do not include prompt text unless it is synthetic.
+      render: text
