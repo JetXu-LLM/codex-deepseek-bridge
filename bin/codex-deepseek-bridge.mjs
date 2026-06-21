@@ -354,6 +354,9 @@ async function cmdSetup(args, env, config) {
   }
 
   const preferredPort = Number(args.port || 8787);
+  if (args["no-start"] !== true) {
+    stopDaemon(config.pidFile);
+  }
   const port = await findAvailablePort(preferredPort, config.host);
   if (port !== preferredPort) {
     out(`Port ${preferredPort} is in use. Using ${port} instead and writing it into your Codex config.`);

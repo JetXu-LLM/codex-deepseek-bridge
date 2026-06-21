@@ -5,6 +5,16 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.13
+
+Keeps repeat setup runs on the expected local port.
+
+### Changed
+
+- `setup` now stops any already tracked bridge background process before resolving the port and
+  starting a fresh bridge. This avoids stale local bridge processes forcing a new setup onto
+  `8788+`.
+
 ## 0.1.12
 
 Tightens restore semantics after the direct setup flow.
