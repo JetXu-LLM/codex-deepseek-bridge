@@ -1,6 +1,8 @@
+import fs from "node:fs";
 import http from "node:http";
 import { createLogger } from "./logger.mjs";
 import { catalogModels } from "./models.mjs";
+import { bridgeVersion } from "./version.mjs";
 import { extractBearer, readJsonBody, sendError, sendHtml, sendJson } from "./http.mjs";
 import { buildPromptDiagnostics } from "./prompt-diagnostics.mjs";
 import { reportDataForConfig, reportHtml } from "./report.mjs";
@@ -21,15 +23,30 @@ function upstreamUrl(config) {
   return `${config.deepseekBaseUrl.replace(/\/+$/, "")}/chat/completions`;
 }
 
+function readStoredKeyFile(config) {
+  if (!config.storedKeyPath) {
+    return "";
+  }
+  try {
+    return fs.readFileSync(config.storedKeyPath, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+// Key resolution order (doc 03 §5): process env -> stored key file -> forwarded
+// Codex bearer. When DSCB_BRIDGE_API_KEY is set the bearer is only a local gate and
+// the upstream key must come from env or the stored file.
 function resolveApiKey(req, config) {
   const bearer = extractBearer(req.headers);
+  const stored = config.apiKey || readStoredKeyFile(config);
   if (config.bridgeApiKey) {
     if (bearer !== config.bridgeApiKey) {
       return { error: "Bridge bearer token rejected." };
     }
-    return { apiKey: config.apiKey };
+    return { apiKey: stored };
   }
-  return { apiKey: config.apiKey || bearer };
+  return { apiKey: stored || bearer };
 }
 
 async function callDeepSeek(body, config, apiKey, signal) {
@@ -52,11 +69,11 @@ async function handleNonStreaming({ res, request, deepSeekBody, registry, config
   if (!upstream.ok) {
     logger.requestFailed({
       requestId,
-      error: `DeepSeek upstream request failed: ${redactSecrets(text)}`,
+      error: `DeepSeek request failed (${upstream.status}): ${redactSecrets(text)}`,
       durationMs: Date.now() - startedAt,
       upstreamStatus: upstream.status,
     });
-    sendError(res, upstream.status, "DeepSeek upstream request failed", redactSecrets(text).slice(0, 4000));
+    sendError(res, upstream.status, `DeepSeek request failed (${upstream.status}).`, redactSecrets(text).slice(0, 4000));
     return;
   }
 
@@ -88,13 +105,14 @@ async function handleStreaming({ res, request, deepSeekBody, registry, config, a
   const upstream = await callDeepSeek(deepSeekBody, config, apiKey, signal);
   if (!upstream.ok || !upstream.body) {
     const text = await upstream.text().catch(() => "");
+    const status = upstream.status || 502;
     logger.requestFailed({
       requestId,
-      error: `DeepSeek upstream stream failed: ${redactSecrets(text)}`,
+      error: `DeepSeek request failed (${status}): ${redactSecrets(text)}`,
       durationMs: Date.now() - startedAt,
-      upstreamStatus: upstream.status || 502,
+      upstreamStatus: status,
     });
-    sendError(res, upstream.status || 502, "DeepSeek upstream stream failed", redactSecrets(text).slice(0, 4000));
+    sendError(res, status, `DeepSeek request failed (${status}).`, redactSecrets(text).slice(0, 4000));
     return;
   }
 
@@ -423,8 +441,6 @@ export function modelList(config) {
   return {
     object: "list",
     data: catalogModels({
-      customAlias: config.modelAlias,
-      customUpstreamModel: config.upstreamModel,
       vision: config.enableVision,
     }).map((model) => ({
       id: model.slug,
@@ -449,7 +465,7 @@ async function handleResponses(req, res, config, logger) {
     return;
   }
   if (!apiKey) {
-    sendError(res, 401, "Set DEEPSEEK_API_KEY before starting the bridge, or pass it as a bearer token.");
+    sendError(res, 401, "No DeepSeek API key available. Run setup with your key, or set DEEPSEEK_API_KEY.");
     return;
   }
 
@@ -485,6 +501,8 @@ export async function startServer(config) {
         sendJson(res, 200, {
           ok: true,
           name: "codex-deepseek-bridge",
+          version: bridgeVersion(),
+          port: config.port,
           modelAlias: config.modelAlias,
           upstreamModel: config.upstreamModel,
           logging: logger.enabled,
@@ -497,7 +515,7 @@ export async function startServer(config) {
         return;
       }
       if (req.method === "GET" && url.pathname === "/report/data") {
-        sendJson(res, 200, reportDataForConfig(config));
+        sendJson(res, 200, { ...reportDataForConfig(config), bridgeVersion: bridgeVersion() });
         return;
       }
       if (req.method === "GET" && (url.pathname === "/models" || url.pathname === "/v1/models")) {

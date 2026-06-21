@@ -2,15 +2,17 @@
 
 Thanks for helping improve Codex DeepSeek Bridge.
 
-This project is intentionally small. Contributions should strengthen the Codex-to-DeepSeek path without turning the bridge into a general router.
+This project is intentionally small: one DeepSeek-only path for the Codex app, fully reversible. Keep
+contributions scoped to the Codex-to-DeepSeek bridge. It is not a multi-provider router or a Codex UI
+mod.
 
-## Development Setup
+## Development setup
 
 Requirements:
 
 - Node.js 18+
 - npm
-- Codex CLI for live verification
+- The Codex app or CLI for live verification
 
 Run the local checks:
 
@@ -19,39 +21,46 @@ npm test
 npm run check
 ```
 
-Run a live smoke test:
+Run a live smoke test against a temporary Codex home so your real config is untouched:
 
 ```bash
-export DEEPSEEK_API_KEY="your_test_key"
-codex-deepseek-bridge serve
-codex-deepseek-bridge doctor --live
+export CODEX_HOME="$(mktemp -d)"
+printf '%s\n' 'YOUR_TEST_KEY' | node ./bin/codex-deepseek-bridge.mjs setup --from-stdin
+node ./bin/codex-deepseek-bridge.mjs doctor --live
 ```
 
-## Pull Request Checklist
+## Building the self-contained binary
+
+The binary uses the Node Single Executable Application (SEA) feature. CI builds it on official Node
+from `actions/setup-node`. Locally, point `NODE_SEA_BASE` at an official, statically-linked node (a
+Homebrew node will not work — its shared `libnode` lacks the SEA fuse):
+
+```bash
+NODE_SEA_BASE=/path/to/official/node npm run build:binary
+```
+
+## Pull request checklist
 
 - Keep changes scoped to Codex + DeepSeek.
-- Add or update tests for protocol translation, logging, reports, or install behavior.
-- Do not commit API keys, local logs, user transcripts, or generated `~/.codex` files.
-- Keep prompt payload logging opt-in.
-- Keep prompt rewriting opt-in and guarded by tests.
+- Add or update tests for translation, config, CLI, report, or upgrade behavior.
+- Never commit API keys, local logs, transcripts, or generated `~/.codex` files.
+- Keep payload logging and any prompt canonicalization opt-in and tested.
 - Run `npm test` and `npm run check`.
-- Update README or docs when behavior changes.
+- Update the README or docs when behavior changes.
 
-## Design Constraints
+## Design constraints
 
-- Prefer zero runtime dependencies.
-- Prefer local, inspectable behavior over cloud services.
-- Keep install reversible.
-- Keep profile mode safe by default.
-- Do not change the user's global Codex provider unless a command explicitly asks for activation.
-- Treat `install --activate` as reversible App DeepSeek Mode. Do not describe it as additive Codex app model-picker support unless verified on the current Codex build.
-- Keep App Login Mode usable for users who have a DeepSeek API key but no ChatGPT/OpenAI Codex login.
-- Make App Login Mode easy to restore with `restore --logout`.
-- Treat cache optimization as evidence-driven: report first, rewrite only with a narrow tested rule.
+- Zero runtime dependencies for the bridge. ESM. ASCII. English-only public docs.
+- macOS and Windows only.
+- The DeepSeek key is a secret: stdin or `DEEPSEEK_API_KEY` only; never an argument, prompt, log, or
+  commit.
+- One managed `config.toml` block, written after a backup. `setup` is idempotent.
+- Login is detect-and-adapt: `codex login status` first, `auth.json` as a fallback. Never call
+  `codex logout` implicitly.
+- Keep `restore` a clean, reversible undo.
+- Cache work is evidence-driven: report first, rewrite only with a narrow, tested rule.
 
-## Release Checklist
-
-Before publishing:
+## Release checklist
 
 ```bash
 npm test
@@ -59,9 +68,5 @@ npm run check
 npm pack --dry-run
 ```
 
-Confirm:
-
-- package contents are small and intentional
-- README quick start still works
-- `/report` and `/report/data` load from a local bridge
-- no secrets are present in the repository
+Confirm package contents are small and intentional, `/report` and `/report/data` load from a local
+bridge, and no secrets are present in the repository. npm publishing is manual and gated.

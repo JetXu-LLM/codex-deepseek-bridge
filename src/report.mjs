@@ -247,7 +247,6 @@ export function buildReportData(config, events = []) {
       deepseekBaseUrl: config.deepseekBaseUrl,
       modelAlias: config.modelAlias,
       upstreamModel: config.upstreamModel,
-      thinking: config.thinking,
       enableVision: config.enableVision,
       apiKeyConfigured: Boolean(config.apiKey),
       logDir: config.logDir || "",

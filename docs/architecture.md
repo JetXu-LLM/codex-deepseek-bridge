@@ -1,77 +1,103 @@
 # Architecture
 
-Codex DeepSeek Bridge has seven small components:
+Codex DeepSeek Bridge turns the OpenAI Codex app into a DeepSeek-only coding agent. Codex talks to a
+tiny local Responses-compatible server; the server translates to DeepSeek `/chat/completions` and
+back. One process serves the bridge and the local report.
 
-1. `bin/codex-deepseek-bridge.mjs`: CLI entrypoint.
-2. `src/server.mjs`: localhost HTTP server and Responses-compatible routes.
-3. `src/translate.mjs`: protocol translation between OpenAI Responses and DeepSeek Chat Completions.
-4. `src/models.mjs`: Codex-facing model presets and DeepSeek upstream mapping.
-5. `src/install.mjs`: Codex model catalog and profile generation.
-6. `src/report.mjs`: local HTML report and report JSON.
-7. `src/prompt-diagnostics.mjs`: prompt-prefix hashes used for cache diagnostics.
+## Components
 
-## Request Flow
+- `bin/codex-deepseek-bridge.mjs` — the CLI (`setup`, `start`, `report`, `doctor`, `restore`,
+  `upgrade`, `version`, `status`, `stop`, internal `serve`).
+- `src/server.mjs` — the localhost HTTP server and routes.
+- `src/translate.mjs` — Responses ⇄ Chat Completions translation, tools, streaming, usage.
+- `src/models.mjs` — the two Codex-facing slugs and their upstream mapping.
+- `src/catalog.mjs` — the two-model catalog and the managed `config.toml` block.
+- `src/install.mjs` — config writer, key storage, login detect-and-adapt, install state, restore.
+- `src/report.mjs` / `src/prompt-diagnostics.mjs` — the local report and cache diagnostics.
+- `src/update-check.mjs` / `src/upgrade.mjs` / `src/version.mjs` — version, update check, upgrade.
+
+## Request flow
 
 ```mermaid
 flowchart LR
-  Codex["Codex app or CLI"] --> Bridge["localhost /v1/responses"]
-  Bridge --> Translator["Responses to Chat Completions"]
-  Translator --> DeepSeek["DeepSeek /chat/completions"]
-  DeepSeek --> Stream["DeepSeek chunks"]
-  Stream --> Events["Responses SSE events"]
-  Events --> Codex
+  App["Codex app (DeepSeek-only)"] -->|/v1/responses| Bridge["localhost bridge :8787"]
+  Bridge --> Tr["Responses -> Chat Completions"]
+  Tr -->|/chat/completions| DS["DeepSeek API"]
+  DS --> Ev["DeepSeek chunks -> Responses SSE"]
+  Ev --> App
+  Bridge --> Report["/report (local HTML)"]
 ```
 
-## Authentication Flow
+The server binds `127.0.0.1:8787` and serves:
 
-Profile Mode and App Login Mode use different key paths:
+- `POST /v1/responses` and `POST /responses`
+- `GET /v1/models` and `GET /models` — the two-model catalog
+- `GET /health` — liveness, version, and port
+- `GET /report` and `GET /report/data` — the local usage and cache report
 
-- Profile Mode: the bridge process reads `DEEPSEEK_API_KEY` and uses it for DeepSeek upstream requests. Codex login remains unchanged.
-- App Login Mode: Codex stores a DeepSeek key through Codex API-key auth. The active provider points at `localhost`, so Codex sends that bearer token to the bridge. If `DEEPSEEK_API_KEY` is not set, the bridge uses the bearer token as the DeepSeek upstream key.
+## The generated Codex config
 
-If `DSCB_BRIDGE_API_KEY` is configured, the bearer token is treated as local bridge authentication instead. In that case the bridge still needs `DEEPSEEK_API_KEY` for upstream DeepSeek calls.
+`setup` writes one managed block at the top of `~/.codex/config.toml` (`%USERPROFILE%\.codex` on
+Windows), after backing up any existing file:
 
-## Tool Calls
+```toml
+# >>> codex-deepseek-bridge
+# Managed by codex-deepseek-bridge. Run `codex-deepseek-bridge restore` to undo.
+model = "deepseek-pro"
+model_provider = "deepseek_bridge"
+model_catalog_json = "<bridgeHome>/models.json"
+model_reasoning_effort = "high"
 
-Codex custom tools can be freeform. DeepSeek Chat Completions function tools need JSON arguments. The bridge wraps freeform input as:
-
-```json
-{ "input": "raw tool input" }
+[model_providers.deepseek_bridge]
+name = "DeepSeek (via Codex DeepSeek Bridge)"
+base_url = "http://127.0.0.1:8787/v1"
+wire_api = "responses"
+requires_openai_auth = true
+# <<< codex-deepseek-bridge
 ```
 
-On the way back, it unwraps that object and emits a Codex `custom_tool_call`.
+`<bridgeHome>` defaults to `<CODEX_HOME>/codex-deepseek-bridge`. It also holds `models.json`,
+`deepseek-key`, `install-state.json`, and the daemon's pid and logs.
 
-## Reasoning State
+## Models and reasoning
 
-DeepSeek thinking mode returns `reasoning_content`. Codex expects reasoning items to be carried as opaque state. The bridge encodes the DeepSeek reasoning content into the `encrypted_content` field with a local prefix. It is not encryption; it is compatibility state for multi-turn continuity.
+The picker shows exactly two slugs. Each maps to a configurable upstream model:
 
-## Model Mapping
+| Codex slug | Upstream model (configurable) |
+| --- | --- |
+| `deepseek-pro` | `deepseek-v4-pro` (`DEEPSEEK_MODEL_PRO`) |
+| `deepseek-flash` | `deepseek-v4-flash` (`DEEPSEEK_MODEL_FLASH`) |
 
-The bridge exposes model names that Codex users can understand:
+The Codex-facing slugs never change; only the upstream mapping does when DeepSeek ships a new
+generation. Unknown or dated slugs fold to the nearest known slug so old sessions keep working.
 
-- `deepseek-v4-pro` -> upstream `deepseek-v4-pro`
-- `deepseek-v4-flash` -> upstream `deepseek-v4-flash`
-- `deepseek-v4-pro-no-thinking` -> upstream `deepseek-v4-pro` with `thinking.disabled`
-- `deepseek-v4-flash-no-thinking` -> upstream `deepseek-v4-flash` with `thinking.disabled`
+Each model exposes three reasoning efforts:
 
-For thinking-enabled models, Codex `high` maps to DeepSeek `high`, and Codex `xhigh` / `max` maps to DeepSeek `max`. Codex `low` and `medium` are intentionally folded into DeepSeek `high`, matching DeepSeek's compatibility behavior.
+| Codex effort | DeepSeek request |
+| --- | --- |
+| `none` | `thinking: { type: "disabled" }` |
+| `high` (default) | `thinking: { type: "enabled" }`, `reasoning_effort: "high"` |
+| `xhigh` | `thinking: { type: "enabled" }`, `reasoning_effort: "max"` |
 
-## Cache Observability
+Any other effort folds to the nearest of the three (`minimal`→`none`; `low`/`medium`→`high`;
+`max`→`xhigh`).
 
-DeepSeek KV cache is upstream behavior. The bridge records usage cache fields when present:
+## Key resolution
 
-- `prompt_cache_hit_tokens`
-- `prompt_cache_miss_tokens`
-- `cache_read_input_tokens`
+At request time the bridge resolves the DeepSeek key in this order:
 
-Those fields appear in `calls.jsonl`. Metadata logs default to `~/.codex/codex-deepseek-bridge/logs`; set `DSCB_LOG_DIR=off` to disable them.
+1. `DEEPSEEK_API_KEY` in the bridge process.
+2. The stored key file `<bridgeHome>/deepseek-key`.
+3. The bearer Codex forwards (because `requires_openai_auth = true`).
 
-The local report is served at `/report` and reads the same JSONL data. It shows:
+If `DSCB_BRIDGE_API_KEY` is set (advanced, for exposing the bridge beyond localhost), the incoming
+bearer gates the bridge and the upstream key must come from steps 1–2.
 
-- token totals by model
-- cache hit and miss tokens
-- recent calls and latency
-- prompt-prefix continuity between comparable requests
-- volatile prompt signals such as timestamps, temp paths, and UUIDs
+## Tool calls and reasoning state
 
-Prompt-prefix diagnostics store hashes, lengths, role sequences, and tool hashes. They do not store prompt text unless `DSCB_LOG_PAYLOADS=1` is explicitly enabled.
+- Codex freeform custom tools (such as `apply_patch`) wrap as `{ "input": "..." }` upstream and
+  unwrap to a Codex `custom_tool_call`.
+- Function and namespace tools pass through.
+- DeepSeek thinking returns `reasoning_content`; the bridge carries it as opaque Codex reasoning
+  state for multi-turn continuity. It is compatibility state, not encryption.
+- Usage mapping includes DeepSeek cache fields and `input_tokens_details.cached_tokens`.

@@ -44,10 +44,14 @@
   "scripts": {
     "check": "node --check bin/codex-deepseek-bridge.mjs && node --check src/*.mjs && node --check test/*.mjs",
     "test": "node --test",
-    "start": "node ./bin/codex-deepseek-bridge.mjs serve",
+    "serve": "node ./bin/codex-deepseek-bridge.mjs serve",
     "doctor": "node ./bin/codex-deepseek-bridge.mjs doctor",
-    "cache-report": "node ./bin/codex-deepseek-bridge.mjs cache-report",
-    "install:codex": "node ./bin/codex-deepseek-bridge.mjs install"
+    "bundle": "esbuild bin/codex-deepseek-bridge.mjs --bundle --platform=node --format=cjs --outfile=dist/bundle.cjs",
+    "build:binary": "node scripts/build-binary.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "postject": "1.0.0-alpha.6"
   },
   "engines": {
     "node": ">=18"

@@ -1,12 +1,32 @@
 import fs from "node:fs";
 import path from "node:path";
-import { buildCodexManagedConfigBlock, buildCodexProfile, buildModelCatalog } from "./catalog.mjs";
+import { execFileSync } from "node:child_process";
+import {
+  BRIDGE_PROVIDER_ID,
+  MANAGED_BLOCK_END,
+  MANAGED_BLOCK_START,
+  buildManagedConfigBlock,
+  buildModelCatalog,
+} from "./catalog.mjs";
 import { defaultBridgeHome, defaultCodexHome } from "./config.mjs";
-import { DEFAULT_CODEX_MODEL, DEFAULT_UPSTREAM_MODEL } from "./models.mjs";
+import { DEFAULT_CODEX_MODEL } from "./models.mjs";
 
-const BLOCK_START = "# >>> codex-deepseek-bridge";
-const BLOCK_END = "# <<< codex-deepseek-bridge";
 const INSTALL_STATE_FILE = "install-state.json";
+const STORED_KEY_FILE = "deepseek-key";
+export const STATE_SCHEMA_VERSION = 1;
+
+// Root keys the managed block owns. Re-running setup strips these outside the
+// managed markers so the managed block stays authoritative (no duplicates).
+const MANAGED_ROOT_KEYS = new Set([
+  "model",
+  "model_provider",
+  "model_catalog_json",
+  "model_reasoning_effort",
+  "model_reasoning_summary",
+  "model_supports_reasoning_summaries",
+  "model_context_window",
+  "personality",
+]);
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -17,33 +37,12 @@ function writeJson(file, value) {
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function replaceManagedBlock(text, block) {
-  const start = text.indexOf(BLOCK_START);
-  const end = text.indexOf(BLOCK_END);
-  if (start !== -1 && end !== -1 && end > start) {
-    return `${text.slice(0, start).trimEnd()}\n\n${block}${text.slice(end + BLOCK_END.length).trimStart()}`;
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
   }
-  return `${text.trimEnd()}\n\n${block}`;
-}
-
-function removeManagedBlock(text) {
-  const start = text.indexOf(BLOCK_START);
-  const end = text.indexOf(BLOCK_END);
-  if (start === -1 || end === -1 || end < start) {
-    return text;
-  }
-  const next = end + BLOCK_END.length;
-  return `${text.slice(0, start).trimEnd()}\n\n${text.slice(next).trimStart()}`.trim();
-}
-
-function hasManagedBlock(text) {
-  const start = text.indexOf(BLOCK_START);
-  const end = text.indexOf(BLOCK_END);
-  return start !== -1 && end !== -1 && end > start;
-}
-
-function shouldWriteConfig({ activate, legacyProfile }) {
-  return activate || legacyProfile;
 }
 
 function timestamp() {
@@ -54,173 +53,332 @@ function installStatePath(bridgeHome) {
   return path.join(bridgeHome, INSTALL_STATE_FILE);
 }
 
-function readJson(file) {
+function storedKeyFilePath(bridgeHome) {
+  return path.join(bridgeHome, STORED_KEY_FILE);
+}
+
+// ---- Managed block manipulation ---------------------------------------------
+
+export function hasManagedBlock(text) {
+  const start = text.indexOf(MANAGED_BLOCK_START);
+  const end = text.indexOf(MANAGED_BLOCK_END);
+  return start !== -1 && end !== -1 && end > start;
+}
+
+export function removeManagedBlock(text) {
+  const start = text.indexOf(MANAGED_BLOCK_START);
+  const end = text.indexOf(MANAGED_BLOCK_END);
+  if (start === -1 || end === -1 || end < start) {
+    return text;
+  }
+  const next = end + MANAGED_BLOCK_END.length;
+  return `${text.slice(0, start).trimEnd()}\n\n${text.slice(next).trimStart()}`.trim();
+}
+
+function removeManagedRootKeys(text) {
+  const lines = text.split(/\n/);
+  let inRoot = true;
+  return lines
+    .filter((line) => {
+      if (/^\s*\[/.test(line)) {
+        inRoot = false;
+      }
+      if (!inRoot) {
+        return true;
+      }
+      const match = line.match(/^\s*([A-Za-z0-9_-]+)\s*=/);
+      return !match || !MANAGED_ROOT_KEYS.has(match[1]);
+    })
+    .join("\n");
+}
+
+// Put the managed block first so its root keys win, then any prior user content.
+function placeManagedBlockFirst(existing, block) {
+  const remainder = removeManagedRootKeys(removeManagedBlock(existing)).trim();
+  if (!remainder) {
+    return block;
+  }
+  return `${block}${remainder}\n`;
+}
+
+// ---- DeepSeek key storage (secret; never logged) ----------------------------
+
+function readStoredKey(bridgeHome) {
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
+    return fs.readFileSync(storedKeyFilePath(bridgeHome), "utf8").trim();
   } catch {
-    return null;
+    return "";
   }
 }
 
-function readCatalogSummary(catalogPath) {
-  const catalog = readJson(catalogPath);
-  const models = Array.isArray(catalog?.models) ? catalog.models : [];
-  return {
-    exists: Boolean(catalog),
-    modelCount: models.length,
-    modelIds: models.map((model) => model.slug || model.id).filter(Boolean),
-  };
+function applyOwnerOnlyAcl(file) {
+  if (process.platform !== "win32") {
+    return;
+  }
+  const user = process.env.USERNAME || process.env.USER;
+  if (!user) {
+    return;
+  }
+  try {
+    execFileSync("icacls", [file, "/inheritance:r", "/grant:r", `${user}:F`], { stdio: "ignore" });
+  } catch {
+    // Best-effort owner-only ACL; POSIX mode bits are a no-op on Windows.
+  }
 }
 
-export function installCodexFiles({
+export function storeDeepSeekKey(bridgeHome, key) {
+  const trimmed = String(key || "").trim();
+  if (!trimmed) {
+    return "";
+  }
+  ensureDir(bridgeHome);
+  const file = storedKeyFilePath(bridgeHome);
+  fs.writeFileSync(file, `${trimmed}\n`, { mode: 0o600 });
+  try {
+    fs.chmodSync(file, 0o600);
+  } catch {
+    // chmod is a no-op on some filesystems; ACL covers Windows.
+  }
+  applyOwnerOnlyAcl(file);
+  return file;
+}
+
+export function removeStoredKey(bridgeHome) {
+  try {
+    fs.unlinkSync(storedKeyFilePath(bridgeHome));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---- Codex login detect-and-adapt (doc 02 §2, doc 06 Phase 2) ---------------
+
+function defaultRunCodex(args, { input } = {}) {
+  try {
+    const stdout = execFileSync("codex", args, {
+      input,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return { ok: true, status: 0, stdout: String(stdout || ""), stderr: "" };
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return { ok: false, status: -1, stdout: "", stderr: "codex not found", missing: true };
+    }
+    return {
+      ok: false,
+      status: typeof error.status === "number" ? error.status : 1,
+      stdout: String(error.stdout || ""),
+      stderr: String(error.stderr || ""),
+    };
+  }
+}
+
+// Parse `codex login status`. Returns a class or null (caller falls back to auth.json).
+function classifyLoginStatus(result) {
+  if (!result || result.missing) {
+    return null;
+  }
+  const text = `${result.stdout || ""}\n${result.stderr || ""}`.toLowerCase();
+  if (result.ok) {
+    if (text.includes("chatgpt")) return "chatgpt";
+    if (text.includes("api key") || text.includes("api-key")) return "api-key";
+    if (text.includes("not logged in") || text.includes("not signed in")) return "none";
+    return null;
+  }
+  if (text.includes("not logged in") || text.includes("not signed in")) return "none";
+  return null;
+}
+
+// auth.json fallback (Codex's own resolution order). Absent file => uncertain
+// (it may live in the OS keyring), never assume "none".
+function classifyAuthJson(codexHome) {
+  const auth = readJson(path.join(codexHome, "auth.json"));
+  if (!auth || typeof auth !== "object") {
+    return "uncertain";
+  }
+  const mode = typeof auth.auth_mode === "string" ? auth.auth_mode.toLowerCase() : "";
+  if (mode.includes("chatgpt")) return "chatgpt";
+  if (mode.includes("api")) return "api-key";
+  if (auth.personal_access_token || auth.chatgpt_auth_tokens || auth.chatgpt) return "chatgpt";
+  if (auth.bedrock_api_key) return "api-key";
+  if (auth.OPENAI_API_KEY || auth.openai_api_key) return "api-key";
+  return "chatgpt";
+}
+
+export function detectLoginMode({
+  env = process.env,
+  codexHome = defaultCodexHome(env),
+  runCodex = defaultRunCodex,
+} = {}) {
+  const fromStatus = classifyLoginStatus(runCodex(["login", "status"]));
+  if (fromStatus) {
+    return fromStatus;
+  }
+  return classifyAuthJson(codexHome);
+}
+
+// `restore --logout` is the explicit, user-invoked way to remove the API-key
+// credential that setup created. This is never called implicitly by setup.
+export function codexLogout({ runCodex = defaultRunCodex } = {}) {
+  return runCodex(["logout"]);
+}
+
+export function codexVersion({ runCodex = defaultRunCodex } = {}) {
+  const result = runCodex(["--version"]);
+  if (!result || !result.ok) {
+    return null;
+  }
+  const text = String(result.stdout || "").trim();
+  const match = text.match(/\d+\.\d+\.\d+/);
+  return match ? match[0] : text || null;
+}
+
+// Adapt login per detected class. Never calls `codex logout`.
+export function adaptCodexLogin({
   env = process.env,
   codexHome = defaultCodexHome(env),
   bridgeHome = defaultBridgeHome(env),
-  alias = DEFAULT_CODEX_MODEL,
-  upstreamModel = DEFAULT_UPSTREAM_MODEL,
+  apiKey = "",
+  runCodex = defaultRunCodex,
+} = {}) {
+  const loginMode = detectLoginMode({ env, codexHome, runCodex });
+  if (loginMode === "none") {
+    const key = String(apiKey || "").trim() || readStoredKey(bridgeHome);
+    if (key) {
+      runCodex(["login", "--with-api-key"], { input: `${key}\n` });
+      return { loginMode, action: "signed-in" };
+    }
+    return { loginMode, action: "needs-key" };
+  }
+  return { loginMode, action: "unchanged" };
+}
+
+// ---- Setup / idempotent reconcile (doc 04 setup, doc 09 §6) -----------------
+
+export function configureCodex({
+  env = process.env,
+  codexHome = defaultCodexHome(env),
+  bridgeHome = defaultBridgeHome(env),
+  apiKey = "",
+  model = DEFAULT_CODEX_MODEL,
   host = "127.0.0.1",
   port = 8787,
-  profileName = "deepseek",
-  activate = false,
-  legacyProfile = false,
-  codexAuth = false,
+  reasoningEffort = "high",
   vision = false,
+  installMethod = "source",
+  bridgeVersion = "0.0.0",
+  runCodex = defaultRunCodex,
+  adaptLogin = true,
 } = {}) {
   ensureDir(codexHome);
   ensureDir(bridgeHome);
 
   const catalogPath = path.join(bridgeHome, "models.json");
-  const profilePath = path.join(codexHome, `${profileName}.config.toml`);
   const configPath = path.join(codexHome, "config.toml");
   const baseUrl = `http://${host}:${port}/v1`;
 
-  writeJson(
-    catalogPath,
-    buildModelCatalog({
-      alias,
-      upstreamModel,
-      displayName: `${upstreamModel} via Codex DeepSeek Bridge`,
-      vision,
-    }),
-  );
-  fs.writeFileSync(profilePath, buildCodexProfile({ alias, baseUrl, catalogPath, codexAuth }));
+  // Catalog is regenerated from code every reconcile (single source of truth).
+  const previousCatalog = fs.existsSync(catalogPath) ? fs.readFileSync(catalogPath, "utf8") : "";
+  writeJson(catalogPath, buildModelCatalog({ vision }));
+  const catalogChanged = previousCatalog !== fs.readFileSync(catalogPath, "utf8");
 
-  let backupPath = "";
-  if (shouldWriteConfig({ activate, legacyProfile })) {
-    const block = buildCodexManagedConfigBlock({ alias, baseUrl, catalogPath, profileName, activate, legacyProfile, codexAuth });
-    const existing = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : "";
-    if (existing) {
-      backupPath = `${configPath}.${timestamp()}.bak`;
-      fs.writeFileSync(backupPath, existing);
-    }
-    fs.writeFileSync(configPath, replaceManagedBlock(existing, block));
+  // Back up the user's original config once; preserve that backup across re-runs.
+  const existing = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : "";
+  const priorState = readJson(installStatePath(bridgeHome));
+  let backupPath = priorState?.backupPath || "";
+  if (existing && !hasManagedBlock(existing)) {
+    backupPath = `${configPath}.${timestamp()}.bak`;
+    fs.writeFileSync(backupPath, existing);
+  }
+  const block = buildManagedConfigBlock({
+    model,
+    provider: BRIDGE_PROVIDER_ID,
+    baseUrl,
+    catalogPath,
+    reasoningEffort,
+  });
+  fs.writeFileSync(configPath, placeManagedBlockFirst(existing, block));
+
+  // Store the key only when supplied; otherwise keep any existing stored key.
+  let keyStored = Boolean(readStoredKey(bridgeHome));
+  if (String(apiKey || "").trim()) {
+    storeDeepSeekKey(bridgeHome, apiKey);
+    keyStored = true;
   }
 
-  const result = {
+  // Login detect-and-adapt (auto sign-in only for the unsigned + key case).
+  let login;
+  if (adaptLogin) {
+    login = adaptCodexLogin({ env, codexHome, bridgeHome, apiKey, runCodex });
+  } else {
+    login = { loginMode: detectLoginMode({ env, codexHome, runCodex }), action: "skipped" };
+  }
+
+  writeJson(installStatePath(bridgeHome), {
+    stateSchemaVersion: STATE_SCHEMA_VERSION,
+    bridgeVersion,
+    previousVersion: priorState?.bridgeVersion ?? null,
+    installMethod,
+    port,
+    loginMode: login.loginMode,
+    backupPath,
+    catalogPath,
+    configPath,
+    installedAt: new Date().toISOString(),
+  });
+
+  return {
     codexHome,
     bridgeHome,
     catalogPath,
-    profilePath,
     configPath,
     backupPath,
     baseUrl,
-    profileName,
-    activated: activate,
-    legacyProfile,
-    codexAuth,
+    model,
+    port,
+    keyStored,
+    loginMode: login.loginMode,
+    loginAction: login.action,
+    catalogChanged,
   };
-  writeJson(installStatePath(bridgeHome), {
-    ...result,
-    installedAt: new Date().toISOString(),
-    modelCatalogBehavior: "Codex model_catalog_json is an override in current verified Codex builds; profile mode scopes it to --profile.",
-    authBehavior: codexAuth
-      ? "Codex API-key auth is used for the local DeepSeek provider. The stored key is sent as bearer auth to the configured local bridge while App Login Mode is active."
-      : "The bridge does not use Codex login credentials in profile mode.",
-  });
-  return result;
 }
 
-export function formatInstallResult(result) {
-  const lines = [
-    "Codex DeepSeek Bridge files installed.",
-    `Catalog: ${result.catalogPath}`,
-    `Profile: ${result.profilePath}`,
-    `Bridge URL: ${result.baseUrl}`,
-    `CLI profile: codex --profile ${result.profileName}`,
-  ];
-  if (result.activated || result.legacyProfile) {
-    lines.push(`Global config updated: ${result.configPath}`);
-    if (result.backupPath) {
-      lines.push(`Backup: ${result.backupPath}`);
-    }
-    if (result.activated) {
-      lines.push("App DeepSeek mode is active. In current Codex builds, model_catalog_json may replace the visible model catalog until restored.");
-      if (result.codexAuth) {
-        lines.push("App Login Mode is active. Codex API-key auth will be sent to the local bridge provider.");
-        lines.push("Use a DeepSeek API key for this Codex API-key login, then run `codex-deepseek-bridge restore --logout` when leaving App Login Mode.");
-      }
-    }
-    if (result.legacyProfile && !result.activated) {
-      lines.push("Only a legacy named profile was added; your default Codex model/provider was not changed.");
-    }
-  } else {
-    lines.push("Global config was not changed. Use --activate to make this the default Codex provider.");
-  }
-  return `${lines.join("\n")}\n`;
-}
+// ---- Inspect (doctor / status) ----------------------------------------------
 
 export function inspectCodexInstall({
   env = process.env,
   codexHome = defaultCodexHome(env),
   bridgeHome = defaultBridgeHome(env),
-  profileName = "deepseek",
 } = {}) {
   const configPath = path.join(codexHome, "config.toml");
-  const profilePath = path.join(codexHome, `${profileName}.config.toml`);
   const statePath = installStatePath(bridgeHome);
   const state = readJson(statePath);
   const catalogPath = state?.catalogPath || path.join(bridgeHome, "models.json");
   const configText = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : "";
+  const catalog = readJson(catalogPath);
+  const models = Array.isArray(catalog?.models) ? catalog.models : [];
   return {
     codexHome,
     bridgeHome,
     configPath,
-    profilePath,
     statePath,
     catalogPath,
     configExists: fs.existsSync(configPath),
-    profileExists: fs.existsSync(profilePath),
     managedBlockPresent: hasManagedBlock(configText),
+    keyStored: Boolean(readStoredKey(bridgeHome)),
     authFileExists: fs.existsSync(path.join(codexHome, "auth.json")),
     state,
-    catalog: readCatalogSummary(catalogPath),
+    catalog: {
+      exists: Boolean(catalog),
+      modelCount: models.length,
+      modelIds: models.map((entry) => entry.slug || entry.id).filter(Boolean),
+    },
   };
 }
 
-export function formatInspectResult(info) {
-  const lines = [
-    "Codex DeepSeek Bridge install diagnostics.",
-    `Codex home: ${info.codexHome}`,
-    `Bridge home: ${info.bridgeHome}`,
-    `Profile: ${info.profileExists ? "present" : "missing"} (${info.profilePath})`,
-    `Global managed block: ${info.managedBlockPresent ? "present" : "not present"}`,
-    `Auth file: ${info.authFileExists ? "present" : "not present"} (OS keychain/keyring auth may still exist)`,
-    `Catalog: ${info.catalog.exists ? `${info.catalog.modelCount} models` : "missing"} (${info.catalogPath})`,
-  ];
-  if (info.catalog.modelIds.length) {
-    lines.push(`Catalog models: ${info.catalog.modelIds.join(", ")}`);
-  }
-  if (info.state?.backupPath) {
-    lines.push(`Last backup: ${info.state.backupPath}`);
-  }
-  if (info.state?.codexAuth) {
-    lines.push("App Login Mode: enabled. Codex API-key auth is expected to be sent to the local bridge provider.");
-  }
-  lines.push("Profile mode keeps existing ChatGPT/OpenAI login state. App DeepSeek mode changes the active local provider until restored.");
-  lines.push("For users without a ChatGPT/OpenAI account, App Login Mode can use a DeepSeek API key stored by Codex API-key auth while the provider points at localhost.");
-  lines.push("For users with ChatGPT login, prefer Profile Mode unless you intentionally want to switch this Codex home into DeepSeek-only app routing.");
-  return `${lines.join("\n")}\n`;
-}
+// ---- Restore (reversibility core) -------------------------------------------
 
 export function restoreCodexConfig({
   env = process.env,
@@ -235,31 +393,19 @@ export function restoreCodexConfig({
 
   const existing = fs.readFileSync(configPath, "utf8");
   const preRestoreBackupPath = `${configPath}.${timestamp()}.pre-restore.bak`;
+  const recordedBackup = backupPath || readJson(installStatePath(bridgeHome))?.backupPath || "";
 
-  if (backupPath) {
-    if (!fs.existsSync(backupPath)) {
-      return { configPath, changed: false, reason: `Backup not found: ${backupPath}` };
+  if (recordedBackup) {
+    if (!fs.existsSync(recordedBackup)) {
+      return { configPath, changed: false, reason: `Backup not found: ${recordedBackup}` };
     }
     fs.writeFileSync(preRestoreBackupPath, existing);
-    fs.writeFileSync(configPath, fs.readFileSync(backupPath, "utf8"));
-    return { configPath, changed: true, backupPath, preRestoreBackupPath, restoredFromBackup: true };
-  }
-
-  const state = readJson(installStatePath(bridgeHome));
-  if (state?.backupPath && fs.existsSync(state.backupPath)) {
-    fs.writeFileSync(preRestoreBackupPath, existing);
-    fs.writeFileSync(configPath, fs.readFileSync(state.backupPath, "utf8"));
-    return {
-      configPath,
-      changed: true,
-      backupPath: state.backupPath,
-      preRestoreBackupPath,
-      restoredFromBackup: true,
-    };
+    fs.writeFileSync(configPath, fs.readFileSync(recordedBackup, "utf8"));
+    return { configPath, changed: true, backupPath: recordedBackup, preRestoreBackupPath, restoredFromBackup: true };
   }
 
   if (!hasManagedBlock(existing)) {
-    return { configPath, changed: false, reason: "No codex-deepseek-bridge managed block found." };
+    return { configPath, changed: false, reason: "No bridge config found." };
   }
 
   fs.writeFileSync(preRestoreBackupPath, existing);
@@ -268,17 +414,6 @@ export function restoreCodexConfig({
   return { configPath, changed: true, preRestoreBackupPath, restoredFromBackup: false };
 }
 
-export function formatRestoreResult(result) {
-  if (!result.changed) {
-    return `${result.reason}\nConfig: ${result.configPath}\n`;
-  }
-  const lines = [`Restored Codex config: ${result.configPath}`, `Pre-restore backup: ${result.preRestoreBackupPath}`];
-  if (result.restoredFromBackup) {
-    lines.push(`Restored from backup: ${result.backupPath}`);
-  } else {
-    lines.push("Removed the codex-deepseek-bridge managed block.");
-  }
-  lines.push("If you used App Login Mode with a DeepSeek key stored in Codex auth, run `codex logout` or `codex-deepseek-bridge restore --logout` to remove it.");
-  lines.push("Restart Codex app for app-mode changes to take effect.");
-  return `${lines.join("\n")}\n`;
+export function readInstallState(bridgeHome = defaultBridgeHome()) {
+  return readJson(installStatePath(bridgeHome));
 }

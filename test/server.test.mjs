@@ -61,7 +61,7 @@ test("serves non-streaming Responses requests", async (t) => {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      model: "deepseek-v4-pro",
+      model: "deepseek-pro",
       input: "hello",
       stream: false,
       reasoning: { effort: "high" },
@@ -71,9 +71,20 @@ test("serves non-streaming Responses requests", async (t) => {
 
   assert.equal(response.status, 200);
   assert.equal(upstreamBody.model, "deepseek-v4-pro");
+  assert.deepEqual(upstreamBody.thinking, { type: "enabled" });
+  assert.equal(upstreamBody.reasoning_effort, "high");
   assert.equal(upstreamBody.messages[0].content, "hello");
   assert.equal(json.output_text, "bridge-ok");
   assert.equal(json.usage.input_tokens_details.prompt_cache_hit_tokens, 10);
+
+  const health = await fetch(`http://127.0.0.1:${port}/health`);
+  const healthJson = await health.json();
+  assert.equal(healthJson.ok, true);
+  assert.equal(typeof healthJson.version, "string");
+
+  const models = await fetch(`http://127.0.0.1:${port}/v1/models`);
+  const modelsJson = await models.json();
+  assert.deepEqual(modelsJson.data.map((entry) => entry.id), ["deepseek-pro", "deepseek-flash"]);
 
   const report = await fetch(`http://127.0.0.1:${port}/report`);
   assert.equal(report.status, 200);
@@ -108,7 +119,7 @@ test("uses Codex bearer token as DeepSeek key when process key is absent", async
   const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: "Bearer test-deepseek-key" },
-    body: JSON.stringify({ model: "deepseek-v4-pro", input: "hello", stream: false }),
+    body: JSON.stringify({ model: "deepseek-pro", input: "hello", stream: false }),
   });
   const json = await response.json();
 
@@ -148,7 +159,7 @@ test("serves streaming Responses events", async (t) => {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      model: "deepseek-v4-pro",
+      model: "deepseek-pro",
       input: "hello",
       stream: true,
     }),
@@ -160,4 +171,46 @@ test("serves streaming Responses events", async (t) => {
   assert.match(text, /response\.output_text\.delta/);
   assert.match(text, /bridge-ok/);
   assert.match(text, /response\.completed/);
+});
+
+test("maps none effort to disabled thinking and xhigh to max in the upstream body", async (t) => {
+  const bodies = [];
+  const mock = await startMockDeepSeek(async (req, res) => {
+    bodies.push(JSON.parse(await readBody(req)));
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      choices: [{ message: { content: "ok" } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }));
+  });
+  t.after(() => mock.server.close());
+
+  const config = buildRuntimeConfig({}, {
+    host: "127.0.0.1",
+    port: 0,
+    deepseekBaseUrl: mock.baseUrl,
+    apiKey: "test-key",
+    logDir: "",
+    quiet: true,
+  });
+  const bridge = await startServer(config);
+  t.after(() => bridge.close());
+  const port = bridge.address().port;
+
+  await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "deepseek-pro", input: "x", stream: false, reasoning: { effort: "none" } }),
+  });
+  await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "deepseek-flash", input: "x", stream: false, reasoning: { effort: "xhigh" } }),
+  });
+
+  assert.deepEqual(bodies[0].thinking, { type: "disabled" });
+  assert.equal(bodies[0].reasoning_effort, undefined);
+  assert.equal(bodies[1].model, "deepseek-v4-flash");
+  assert.deepEqual(bodies[1].thinking, { type: "enabled" });
+  assert.equal(bodies[1].reasoning_effort, "max");
 });

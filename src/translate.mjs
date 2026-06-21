@@ -184,24 +184,30 @@ function outputTextFromItem(item) {
   return responseContentToChatContent(item?.content, { enableVision: false });
 }
 
-export function normalizeThinkingType(value) {
-  if (value === false || value === "0" || value === "false" || value === "off" || value === "none" || value === "disabled") {
-    return "disabled";
+// Fold any Codex reasoning effort onto the three the bridge exposes.
+// none|minimal -> none ; low|medium|high -> high (default) ; xhigh|max -> xhigh.
+export function normalizeReasoningEffort(effort) {
+  switch (effort) {
+    case "none":
+    case "minimal":
+      return "none";
+    case "xhigh":
+    case "max":
+      return "xhigh";
+    default:
+      return "high";
   }
-  return "enabled";
 }
 
-export function mapDeepSeekThinking({ effort, configuredThinking = "enabled", modelThinking = "auto" } = {}) {
-  if (modelThinking === "disabled" || normalizeThinkingType(configuredThinking) === "disabled") {
+export function mapDeepSeekThinking({ effort } = {}) {
+  const normalized = normalizeReasoningEffort(effort);
+  if (normalized === "none") {
     return { thinking: { type: "disabled" } };
   }
-  if (effort === "none" || effort === "minimal") {
-    return { thinking: { type: "disabled" } };
+  if (normalized === "xhigh") {
+    return { thinking: { type: "enabled" }, reasoning_effort: "max" };
   }
-  return {
-    thinking: { type: "enabled" },
-    reasoning_effort: effort === "xhigh" || effort === "max" ? "max" : "high",
-  };
+  return { thinking: { type: "enabled" }, reasoning_effort: "high" };
 }
 
 export function mapToolChoice(toolChoice, registry, thinking) {
@@ -318,11 +324,7 @@ export function buildChatMessages(responseRequest, registry, config) {
 
 export function buildDeepSeekRequest(responseRequest, registry, config) {
   const resolvedModel = resolveModelRequest(responseRequest.model, config);
-  const thinking = mapDeepSeekThinking({
-    effort: responseRequest.reasoning?.effort,
-    configuredThinking: config.thinking,
-    modelThinking: resolvedModel.thinking,
-  });
+  const thinking = mapDeepSeekThinking({ effort: responseRequest.reasoning?.effort });
   const body = {
     model: resolvedModel.upstreamModel,
     messages: buildChatMessages(responseRequest, registry, config),

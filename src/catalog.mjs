@@ -1,117 +1,45 @@
-import { catalogModels, DEFAULT_CODEX_MODEL, DEFAULT_UPSTREAM_MODEL } from "./models.mjs";
+import { catalogModels, DEFAULT_CODEX_MODEL } from "./models.mjs";
 
-export function buildModelCatalog({
-  alias = DEFAULT_CODEX_MODEL,
-  vision = false,
-  upstreamModel = DEFAULT_UPSTREAM_MODEL,
-} = {}) {
+export const BRIDGE_PROVIDER_ID = "deepseek_bridge";
+export const BRIDGE_PROVIDER_NAME = "DeepSeek (via Codex DeepSeek Bridge)";
+
+export const MANAGED_BLOCK_START = "# >>> codex-deepseek-bridge";
+export const MANAGED_BLOCK_END = "# <<< codex-deepseek-bridge";
+
+export function buildModelCatalog({ vision = false } = {}) {
   return {
-    models: catalogModels({
-      customAlias: alias,
-      customUpstreamModel: upstreamModel,
-      vision,
-    }),
+    models: catalogModels({ vision }),
   };
 }
 
-export function buildCodexProfile({
-  alias = DEFAULT_CODEX_MODEL,
-  baseUrl = "http://127.0.0.1:8787/v1",
-  catalogPath,
-  provider = "deepseek_bridge",
-  codexAuth = false,
-} = {}) {
-  const escapedCatalogPath = catalogPath.replaceAll("\\", "\\\\");
-  const escapedBaseUrl = baseUrl.replaceAll("\\", "\\\\");
-  return `model = "${alias}"
-model_provider = "${provider}"
-model_catalog_json = "${escapedCatalogPath}"
-personality = "none"
-model_context_window = 1000000
-model_reasoning_effort = "high"
-model_reasoning_summary = "auto"
-model_supports_reasoning_summaries = true
-
-[model_providers.${provider}]
-name = "DeepSeek Codex Bridge"
-base_url = "${escapedBaseUrl}"
-wire_api = "responses"
-${codexAuth ? "requires_openai_auth = true\n" : ""}`;
+function tomlString(value) {
+  return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
-export function buildCodexGlobalBlock({
-  alias = DEFAULT_CODEX_MODEL,
+// The one managed config.toml block (doc 03 §2.2). DeepSeek-only, written at the
+// top of config.toml so its root keys win, fully reversible by `restore`.
+export function buildManagedConfigBlock({
+  model = DEFAULT_CODEX_MODEL,
+  provider = BRIDGE_PROVIDER_ID,
   baseUrl = "http://127.0.0.1:8787/v1",
   catalogPath,
-  provider = "deepseek_bridge",
-  codexAuth = false,
+  reasoningEffort = "high",
 } = {}) {
-  return [
-    "# >>> codex-deepseek-bridge",
-    "# Managed by codex-deepseek-bridge. Remove this block to uninstall the active global profile.",
-    buildCodexProfile({ alias, baseUrl, catalogPath, provider, codexAuth }).trimEnd(),
-    "# <<< codex-deepseek-bridge",
+  const lines = [
+    MANAGED_BLOCK_START,
+    "# Managed by codex-deepseek-bridge. Run `codex-deepseek-bridge restore` to undo.",
+    `model = ${tomlString(model)}`,
+    `model_provider = ${tomlString(provider)}`,
+    `model_catalog_json = ${tomlString(catalogPath)}`,
+    `model_reasoning_effort = ${tomlString(reasoningEffort)}`,
     "",
-  ].join("\n");
-}
-
-export function buildCodexLegacyProfile({
-  alias = DEFAULT_CODEX_MODEL,
-  baseUrl = "http://127.0.0.1:8787/v1",
-  catalogPath,
-  profileName = "deepseek",
-  provider = "deepseek_bridge",
-  codexAuth = false,
-  includeProvider = true,
-} = {}) {
-  const escapedCatalogPath = catalogPath.replaceAll("\\", "\\\\");
-  const escapedBaseUrl = baseUrl.replaceAll("\\", "\\\\");
-  const providerBlock = includeProvider
-    ? `[model_providers.${provider}]
-name = "DeepSeek Codex Bridge"
-base_url = "${escapedBaseUrl}"
-wire_api = "responses"
-${codexAuth ? "requires_openai_auth = true\n" : ""}
-`
-    : "";
-  return `${providerBlock}[profiles.${profileName}]
-model = "${alias}"
-model_provider = "${provider}"
-model_catalog_json = "${escapedCatalogPath}"
-personality = "none"
-model_context_window = 1000000
-model_reasoning_effort = "high"
-model_reasoning_summary = "auto"
-model_supports_reasoning_summaries = true
-`;
-}
-
-export function buildCodexManagedConfigBlock({
-  alias = DEFAULT_CODEX_MODEL,
-  baseUrl = "http://127.0.0.1:8787/v1",
-  catalogPath,
-  provider = "deepseek_bridge",
-  profileName = "deepseek",
-  activate = false,
-  legacyProfile = false,
-  codexAuth = false,
-} = {}) {
-  const parts = [
-    "# >>> codex-deepseek-bridge",
-    "# Managed by codex-deepseek-bridge.",
+    `[model_providers.${provider}]`,
+    `name = ${tomlString(BRIDGE_PROVIDER_NAME)}`,
+    `base_url = ${tomlString(baseUrl)}`,
+    'wire_api = "responses"',
+    "requires_openai_auth = true",
+    MANAGED_BLOCK_END,
+    "",
   ];
-  if (activate) {
-    parts.push("# App DeepSeek mode follows. Remove this block or run `codex-deepseek-bridge restore` to restore your prior default.");
-    parts.push("# Current verified Codex builds treat model_catalog_json as an override, so GPT models may be hidden while this mode is active.");
-    if (codexAuth) {
-      parts.push("# Codex API-key login is used for this provider; the stored key is sent only to this configured provider while this block is active.");
-    }
-    parts.push(buildCodexProfile({ alias, baseUrl, catalogPath, provider, codexAuth }).trimEnd());
-  }
-  if (legacyProfile) {
-    parts.push("# Legacy Codex CLI profile for versions before 0.134.");
-    parts.push(buildCodexLegacyProfile({ alias, baseUrl, catalogPath, profileName, provider, codexAuth, includeProvider: !activate }).trimEnd());
-  }
-  parts.push("# <<< codex-deepseek-bridge", "");
-  return parts.join("\n");
+  return lines.join("\n");
 }

@@ -1,149 +1,105 @@
 # Platforms And Upgrades
 
-Codex DeepSeek Bridge has one mental model across macOS, Windows, WSL, and Linux:
+Codex DeepSeek Bridge supports macOS and Windows. The flow is the same on both:
 
-1. install the package
-2. choose Profile Mode or App Login Mode
-3. start the localhost bridge
-4. verify with `doctor`
-5. open the local report
-6. restore cleanly when you leave app mode
+1. Get the bridge (binary, npm, or the Path A prompt).
+2. Run `setup` with your DeepSeek key over stdin.
+3. Restart Codex.
+4. Re-run `start` whenever you reopen your computer.
 
-## Mode Selection
+## Install methods
 
-Use **Profile Mode** when you already sign in to Codex with ChatGPT or OpenAI. It creates a `deepseek` profile and keeps your normal Codex login and GPT sessions intact.
+### Self-contained binary (no Node)
 
-Use **App Login Mode** when you do not have a ChatGPT/OpenAI Codex login and want to use the Codex app with a DeepSeek API key. It temporarily points Codex at the local bridge and stores the DeepSeek key through Codex API-key login.
-
-Use **App DeepSeek Mode** only when you intentionally want Codex app local sessions to route through DeepSeek by default. Current verified Codex builds may treat `model_catalog_json` as an override, so GPT models may be hidden while this mode is active.
-
-## macOS
-
-Profile Mode:
+Download the binary for your OS from the latest GitHub release, then run `setup` and `start`. macOS
+requires clearing the quarantine attribute; Windows may warn through SmartScreen.
 
 ```bash
-npm install -g github:JetXu-LLM/codex-deepseek-bridge
-codex-deepseek-bridge install --model deepseek-v4-pro
-export DEEPSEEK_API_KEY="your_deepseek_api_key"
-codex-deepseek-bridge serve --daemon
-codex-deepseek-bridge doctor --auth
-codex-deepseek-bridge doctor --live
-codex --profile deepseek
+# macOS (Apple Silicon)
+xattr -d com.apple.quarantine ./codex-deepseek-bridge-macos-arm64 2>/dev/null
+chmod +x ./codex-deepseek-bridge-macos-arm64
+printf '%s\n' 'YOUR_DEEPSEEK_API_KEY' | ./codex-deepseek-bridge-macos-arm64 setup --from-stdin
+./codex-deepseek-bridge-macos-arm64 start
 ```
-
-App Login Mode:
-
-```bash
-npm install -g github:JetXu-LLM/codex-deepseek-bridge
-export DEEPSEEK_API_KEY="your_deepseek_api_key"
-printf "%s\n" "$DEEPSEEK_API_KEY" | codex-deepseek-bridge app-login --from-stdin
-codex-deepseek-bridge doctor --auth
-codex-deepseek-bridge open-report
-```
-
-Restore App Login Mode:
-
-```bash
-codex-deepseek-bridge restore --logout
-```
-
-Restart Codex after activation or restore.
-
-## Windows PowerShell
-
-Profile Mode:
 
 ```powershell
-npm install -g github:JetXu-LLM/codex-deepseek-bridge
-codex-deepseek-bridge install --model deepseek-v4-pro
-$env:DEEPSEEK_API_KEY="your_deepseek_api_key"
-codex-deepseek-bridge serve
-codex-deepseek-bridge doctor --auth
-codex-deepseek-bridge doctor --live
-codex --profile deepseek
+# Windows (PowerShell). If SmartScreen warns: More info -> Run anyway.
+'YOUR_DEEPSEEK_API_KEY' | .\codex-deepseek-bridge-win-x64.exe setup --from-stdin
+.\codex-deepseek-bridge-win-x64.exe start
 ```
 
-App Login Mode:
-
-```powershell
-npm install -g github:JetXu-LLM/codex-deepseek-bridge
-$env:DEEPSEEK_API_KEY="your_deepseek_api_key"
-$env:DEEPSEEK_API_KEY | codex-deepseek-bridge app-login --from-stdin
-codex-deepseek-bridge doctor --auth
-codex-deepseek-bridge open-report
-```
-
-Restore:
-
-```powershell
-codex-deepseek-bridge restore --logout
-```
-
-If PowerShell blocks `npm` scripts, use Windows' normal execution-policy guidance for local development machines before rerunning the install.
-
-## WSL
-
-Native Windows Codex uses `%USERPROFILE%\.codex`. Codex inside WSL uses Linux `~/.codex` unless you set `CODEX_HOME`.
-
-Choose one environment and keep Codex plus the bridge together:
-
-- If the Codex app agent runs in native Windows, install and run the bridge in Windows.
-- If the Codex app agent runs in WSL, install and run the bridge in WSL.
-- If you deliberately share state, set `CODEX_HOME` so both sides point at the same Codex home.
-
-Example WSL Profile Mode:
+### npm (if you have Node)
 
 ```bash
-npm install -g github:JetXu-LLM/codex-deepseek-bridge
-codex-deepseek-bridge install --model deepseek-v4-pro
-export DEEPSEEK_API_KEY="your_deepseek_api_key"
-codex-deepseek-bridge serve
-codex --profile deepseek
+npm install -g codex-deepseek-bridge
+printf '%s\n' 'YOUR_DEEPSEEK_API_KEY' | codex-deepseek-bridge setup --from-stdin
+codex-deepseek-bridge start
 ```
 
-## Codex Homes And Credentials
+Before the npm package is published: `npm install -g github:JetXu-LLM/codex-deepseek-bridge`.
 
-Generated files live under `CODEX_HOME`:
+## The key is read from stdin
 
-- `deepseek.config.toml`
-- `codex-deepseek-bridge/models.json`
-- `codex-deepseek-bridge/install-state.json`
-- `config.toml` managed block only when activation or legacy compatibility is requested
+`setup` reads the DeepSeek key from `--from-stdin` or the `DEEPSEEK_API_KEY` environment variable
+only. It is never accepted as a command-line argument and never printed, logged, or committed. The
+key is stored at `<bridgeHome>/deepseek-key` with owner-only permissions.
 
-Codex credentials may live in `auth.json` or in the operating system credential store, depending on Codex configuration. In App Login Mode, the stored API-key credential is a DeepSeek key for this local bridge workflow. Use `restore --logout` to remove it when you leave the mode.
+## Starting the bridge again
 
-## Updating The Bridge
-
-From GitHub:
+The bridge runs in the background and powers both Codex and the report.
 
 ```bash
-npm install -g github:JetXu-LLM/codex-deepseek-bridge
-codex-deepseek-bridge install --model deepseek-v4-pro
-codex-deepseek-bridge doctor --auth
+codex-deepseek-bridge start
 ```
 
-After npm publication:
+- macOS starts a detached process that survives closing the terminal.
+- Windows starts a background process; re-run `start` after a reboot or new login.
+
+`start` is idempotent: if the bridge is already running it reports the port and exits.
+
+## Files under CODEX_HOME
+
+`CODEX_HOME` defaults to `~/.codex` (`%USERPROFILE%\.codex` on Windows). The bridge writes:
+
+- `config.toml` — one managed block, written after backing up any existing file.
+- `<bridgeHome>/models.json` — the two-model catalog.
+- `<bridgeHome>/deepseek-key` — the stored key (owner-only).
+- `<bridgeHome>/install-state.json` — what was changed, the backup path, the resolved port, the
+  detected login mode, the install method, and the bridge version.
+- `<bridgeHome>/bridge.pid`, `bridge.stdout.log`, `bridge.stderr.log` — daemon bookkeeping.
+
+`<bridgeHome>` defaults to `<CODEX_HOME>/codex-deepseek-bridge`.
+
+## Ports
+
+`setup` resolves a port (default 8787; the next free port if 8787 is taken) and writes the same value
+into the managed block and the running process. `--port` overrides it. Re-running `setup` rewrites
+the block to the resolved port.
+
+## Upgrading
 
 ```bash
-npm install -g codex-deepseek-bridge@latest
-codex-deepseek-bridge install --model deepseek-v4-pro
-codex-deepseek-bridge doctor --auth
+codex-deepseek-bridge upgrade           # update to the latest release and restart the bridge
+codex-deepseek-bridge upgrade --check   # print installed and latest versions, change nothing
 ```
 
-Restart Codex after reinstalling profiles or activating/restoring app mode.
+`upgrade` updates per install method:
 
-## Codex Or DeepSeek Changes
+- **npm:** runs `npm install -g codex-deepseek-bridge@latest`.
+- **binary:** downloads the matching release asset, verifies its checksum, and swaps it in place
+  (keeping the previous binary for `upgrade --rollback`). It never swaps on a checksum mismatch.
+- **source:** prints `git pull && npm install`.
 
-Codex provider configuration and DeepSeek APIs can evolve. The bridge keeps generated files small and reversible so users can update safely:
+After updating, `upgrade` re-runs the idempotent `setup` reconcile (rewriting `models.json` and the
+managed block, preserving your key and port, never touching login) and restarts the bridge. If the
+model catalog changed, it tells you to restart Codex.
 
-- upgrade the package
-- rerun `codex-deepseek-bridge install`
-- rerun `doctor --auth`
-- rerun `doctor --live` when a DeepSeek key is available
-- restore app mode if the visual model selector behaves unexpectedly
+The running bridge can also notice a newer release on its own and surface it in the report and in
+`version` / `doctor`. It reads only public GitHub release metadata, uploads nothing, and never
+auto-installs. Turn it off with `DSCB_UPDATE_CHECK=off` or `DO_NOT_TRACK=1`.
 
-If DeepSeek adds multimodal input for the selected model, enable image input only after verifying the current API shape:
+## When Codex or DeepSeek changes
 
-```bash
-DEEPSEEK_ENABLE_VISION=1 codex-deepseek-bridge serve
-```
+Generated files stay small and reversible. To move forward safely: `upgrade` (or re-run `setup`),
+then `doctor`. If DeepSeek ships a new model generation, the upstream mapping is a one-line change
+(`DEEPSEEK_MODEL_PRO` / `DEEPSEEK_MODEL_FLASH`); the Codex-facing slugs do not change.

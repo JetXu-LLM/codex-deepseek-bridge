@@ -1,11 +1,12 @@
 import os from "node:os";
 import path from "node:path";
-import { DEFAULT_CODEX_MODEL, DEFAULT_UPSTREAM_MODEL } from "./models.mjs";
+import { DEFAULT_CODEX_MODEL, resolveUpstreamModels } from "./models.mjs";
 import { isEnabled } from "./util.mjs";
 
 export const DEFAULT_MODEL_ALIAS = DEFAULT_CODEX_MODEL;
 export const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 export const DEFAULT_BRIDGE_DIR_NAME = "codex-deepseek-bridge";
+export const STORED_KEY_FILE = "deepseek-key";
 
 export function defaultCodexHome(env = process.env) {
   return env.CODEX_HOME || path.join(os.homedir(), ".codex");
@@ -13,6 +14,10 @@ export function defaultCodexHome(env = process.env) {
 
 export function defaultBridgeHome(env = process.env) {
   return env.DSCB_HOME || path.join(defaultCodexHome(env), DEFAULT_BRIDGE_DIR_NAME);
+}
+
+export function storedKeyPath(env = process.env) {
+  return path.join(defaultBridgeHome(env), STORED_KEY_FILE);
 }
 
 function disabledPath(value) {
@@ -35,15 +40,17 @@ export function resolveLogDir(env = process.env, override) {
 
 export function buildRuntimeConfig(env = process.env, overrides = {}) {
   const logDir = resolveLogDir(env, overrides.logDir);
+  const upstreamModels = overrides.upstreamModels ?? resolveUpstreamModels(env);
   return {
     host: overrides.host ?? env.HOST ?? "127.0.0.1",
     port: Number(overrides.port ?? env.PORT ?? 8787),
     deepseekBaseUrl: overrides.deepseekBaseUrl ?? env.DEEPSEEK_BASE_URL ?? DEFAULT_DEEPSEEK_BASE_URL,
-    upstreamModel: overrides.upstreamModel ?? env.DEEPSEEK_MODEL ?? DEFAULT_UPSTREAM_MODEL,
-    modelAlias: overrides.modelAlias ?? env.BRIDGE_MODEL ?? env.DEEPSEEK_MODEL ?? DEFAULT_MODEL_ALIAS,
-    thinking: overrides.thinking ?? env.DEEPSEEK_THINKING ?? "enabled",
+    upstreamModels,
+    upstreamModel: overrides.upstreamModel ?? upstreamModels[DEFAULT_CODEX_MODEL],
+    modelAlias: overrides.modelAlias ?? DEFAULT_MODEL_ALIAS,
     enableVision: overrides.enableVision ?? isEnabled(env.DEEPSEEK_ENABLE_VISION || "0"),
     apiKey: overrides.apiKey ?? env.DEEPSEEK_API_KEY ?? "",
+    storedKeyPath: overrides.storedKeyPath ?? storedKeyPath(env),
     bridgeApiKey: overrides.bridgeApiKey ?? env.DSCB_BRIDGE_API_KEY ?? "",
     quiet: overrides.quiet ?? isEnabled(env.QUIET || "0"),
     logDir,
@@ -91,11 +98,7 @@ export function configFromArgs(args, env = process.env) {
     host: args.host,
     port: args.port,
     deepseekBaseUrl: args.deepseekBaseUrl || args["deepseek-base-url"],
-    upstreamModel: args.upstreamModel || args["upstream-model"] || args.model,
-    modelAlias: args.alias || args["model-alias"],
-    thinking: args.thinking,
     enableVision: optionalBoolean(args.vision),
-    apiKey: args.apiKey || args["api-key"],
     bridgeApiKey: args.bridgeApiKey || args["bridge-api-key"],
     quiet: optionalBoolean(args.quiet),
     logDir: args.logDir || args["log-dir"],

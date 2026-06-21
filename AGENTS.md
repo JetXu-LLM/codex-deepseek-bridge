@@ -1,53 +1,40 @@
 # AGENTS.md
 
-This repo has one job: make OpenAI Codex work with DeepSeek through a small local Responses-compatible bridge.
+Guidance for AI agents working in this repository.
 
-## Scope
+## What this project is
 
-- Keep the bridge focused on Codex and DeepSeek.
-- Do not turn this into a general LLM router.
-- Prefer zero runtime dependencies unless a dependency removes real protocol risk.
-- Keep code readable for users who want to audit how prompts, tool calls, and keys move.
+Codex DeepSeek Bridge turns the OpenAI Codex app into a DeepSeek-only coding agent through a tiny
+local Responses-compatible bridge. There is one path: run `setup`, restart Codex, and the model
+picker shows exactly `deepseek-pro` and `deepseek-flash`. A single `restore` undoes everything.
 
-## Safety
+Scope is macOS and Windows. There is no multi-provider routing, no GPT coexistence, no Codex UI
+injection, and no telemetry.
 
-- Never commit real API keys, bearer tokens, request logs, or user transcripts.
-- Redact secrets in logs and errors.
-- Do not modify a user's `~/.codex/config.toml` unless a command explicitly asks for activation.
-- Keep `install` profile-first and reversible.
-- Keep App Login Mode explicit: it stores a DeepSeek key through Codex API-key auth for the current Codex home.
-- Use `restore --logout` as the clean rollback path for App Login Mode.
-- Treat `install --activate` as reversible App DeepSeek Mode, not guaranteed additive app model-picker support.
-- Do not claim DeepSeek appears beside GPT models in the Codex app unless verified against the current Codex build.
-- Keep prompt text out of metadata logs by default. Prompt payload logging must stay opt-in through `DSCB_LOG_PAYLOADS=1`.
+## Hard rules
 
-## Cache And Reports
+- The DeepSeek key is a secret. Read it from `--from-stdin` or `DEEPSEEK_API_KEY` only — never as a
+  command-line argument. Never print, log, commit, or place it in a Codex prompt or session log.
+  Store it at `<bridgeHome>/deepseek-key` with owner-only permissions.
+- Write one managed `config.toml` block, after backing up any existing file. `setup` is idempotent
+  (no duplicate blocks; key and port preserved on re-run).
+- Login is detect-and-adapt: `codex login status` first, `auth.json` as a fallback, `uncertain` when
+  unsure. Auto sign-in (`codex login --with-api-key`) only when no auth is detected. Never call
+  `codex logout` implicitly.
+- Two Codex-facing slugs (`deepseek-pro`, `deepseek-flash`) mapping to configurable upstream models
+  (`DEEPSEEK_MODEL_PRO` / `DEEPSEEK_MODEL_FLASH`). Three reasoning efforts: `none | high | xhigh`,
+  default `high`.
+- Zero runtime dependencies. ESM. ASCII. English-only public docs.
 
-- `/report` and `cache-report` should explain DeepSeek usage; they should not become a general analytics product.
-- Cache optimization must be evidence-driven. Diagnose prefix drift before changing prompts.
-- Do not enable prompt rewriting by default.
-- Preserve Codex message order unless a protocol requirement proves otherwise.
+## Conventions
 
-## Verification
+- Modules live in `src/`; the CLI is `bin/codex-deepseek-bridge.mjs`.
+- Tests use `node --test` against temporary `CODEX_HOME` / `DSCB_HOME` directories.
+- Use `npm test` and `npm run check` before finishing a change.
+- The self-contained binary is built by `npm run build:binary` (Node SEA). CI builds it on official
+  Node; locally set `NODE_SEA_BASE` to an official node binary.
 
-Before shipping a change:
+## User-facing copy
 
-```bash
-npm test
-npm run check
-```
-
-For live verification, use a throwaway key or user-provided key:
-
-```bash
-DEEPSEEK_API_KEY="..." codex-deepseek-bridge serve
-codex-deepseek-bridge doctor --live
-```
-
-## Style
-
-- Use modern Node.js ESM.
-- Keep files ASCII unless a referenced protocol or document requires otherwise.
-- Prefer small modules over a monolithic bridge file.
-- Add comments only where protocol translation would otherwise be hard to follow.
-- Public repo docs are English only.
+Lead with what the user gets, then how. Short sentences, plain words, no hype. Never print the user's
+key. Keep the README and CLI messages aligned with the project voice.

@@ -1,13 +1,17 @@
-model = "deepseek-v4-pro"
+# Example of the managed block `setup` writes into ~/.codex/config.toml.
+# You do not edit this by hand — `codex-deepseek-bridge setup` generates it and
+# `codex-deepseek-bridge restore` removes it. Shown here for reference only.
+
+# >>> codex-deepseek-bridge
+# Managed by codex-deepseek-bridge. Run `codex-deepseek-bridge restore` to undo.
+model = "deepseek-pro"
 model_provider = "deepseek_bridge"
-model_catalog_json = "/ABSOLUTE/PATH/TO/models.json"
-personality = "none"
-model_context_window = 1000000
+model_catalog_json = "/ABSOLUTE/PATH/TO/codex-deepseek-bridge/models.json"
 model_reasoning_effort = "high"
-model_reasoning_summary = "auto"
-model_supports_reasoning_summaries = true
 
 [model_providers.deepseek_bridge]
-name = "DeepSeek Codex Bridge"
+name = "DeepSeek (via Codex DeepSeek Bridge)"
 base_url = "http://127.0.0.1:8787/v1"
 wire_api = "responses"
+requires_openai_auth = true
+# <<< codex-deepseek-bridge

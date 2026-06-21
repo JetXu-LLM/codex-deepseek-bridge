@@ -1,67 +1,65 @@
 # Cache And Observability
 
-Codex DeepSeek Bridge records local metadata so you can understand DeepSeek token usage, cache hits, cache misses, latency, model routing, and prompt-prefix stability.
+The bridge records local metadata so you can understand DeepSeek token usage, cache hits and misses,
+latency, model routing, and prompt-prefix stability. It is read-only and local. Prompt text is not
+stored.
 
-## DeepSeek Context Caching
+## DeepSeek context caching
 
-DeepSeek context caching is automatic on the API side. The bridge does not create a local semantic cache and does not replay model outputs. Instead, it records DeepSeek cache usage fields when present:
+DeepSeek context caching is automatic on the API side. The bridge does not create its own cache and
+does not replay model outputs. It records the cache usage fields DeepSeek returns:
 
 - `prompt_cache_hit_tokens`
 - `prompt_cache_miss_tokens`
-- compatible cached-token fields returned through `prompt_tokens_details`
+- compatible cached-token fields from `prompt_tokens_details`
 
-Use the local report:
+## The local report
 
-```text
+The report is served by the same process as the bridge:
+
+```
 http://127.0.0.1:8787/report
 ```
 
-Or use the CLI summary:
-
-```bash
-codex-deepseek-bridge cache-report
-```
-
-## What The Report Shows
-
-The report is intentionally local and read-only. It shows:
+It shows:
 
 - total calls, failed calls, and average upstream latency
-- input/output token totals
-- DeepSeek cache hit and miss tokens
-- cache hit rate by model
-- recent calls with model, thinking mode, duration, tokens, and cache fields
+- input and output token totals
+- DeepSeek cache hit and miss tokens, and hit rate by model
+- recent calls with model, reasoning effort, duration, tokens, and cache fields
 - prompt-prefix continuity between comparable requests
 - volatile prompt signals such as timestamps, temp paths, and UUIDs
 
-The report reads the same `calls.jsonl` metadata log as the CLI report.
+`GET /report/data` returns the same data as JSON, including the running bridge version.
 
-## Prompt Privacy
+## Prompt privacy
 
-By default, prompt diagnostics do not store prompt text. They store:
+By default the diagnostics store no prompt text. They store:
 
 - message hashes
 - content lengths
 - role sequences
-- system prompt hash
-- tool schema hash
-- stable prefix hash
+- system-prompt hash
+- tool-schema hash
+- stable-prefix hash
 - volatile-signal counts
 
-Set `DSCB_LOG_PAYLOADS=1` only when you intentionally want redacted request and response payloads written to local disk for debugging.
+Set `DSCB_LOG_PAYLOADS=1` only when you intentionally want redacted request and response payloads
+written to local disk for debugging.
 
-## Prefix Stability
+## Logs
 
-DeepSeek cache hits depend on stable, fully matching cached prefixes. The bridge compares each request with the previous comparable request in the same model and stable-prefix group.
+Metadata logs default to `<bridgeHome>/logs/calls.jsonl` (`<bridgeHome>` is
+`<CODEX_HOME>/codex-deepseek-bridge`). Disable them with `DSCB_LOG_DIR=off`.
 
-The report classifies prefix risk as:
+## Prefix stability
 
-- `low`: system/tool prefix is stable and the previous prompt is mostly covered
-- `medium`: the previous prompt is only partially covered
-- `high`: system prompt, tool schema, or most of the previous prompt changed
+DeepSeek cache hits depend on a stable, fully matching prefix. The bridge compares each request with
+the previous comparable request and classifies prefix risk as `low`, `medium`, or `high`. High risk
+is not a bug; it is a signal to check whether the model, tool set, system prompt, or volatile values
+changed between turns.
 
-High prefix risk does not mean the bridge is wrong. It means the next step is diagnosis: check whether Codex changed the thread context, model, tool set, system prompt, temporary paths, timestamps, or other volatile data.
+## No prompt rewriting
 
-## Prompt Rewriting
-
-The bridge does not rewrite prompts by default. It preserves Codex message order and reports prefix stability so you can diagnose cache behavior without changing agent behavior.
+The bridge preserves Codex message order and does not rewrite prompts. It reports prefix stability so
+you can diagnose cache behavior without changing how the agent behaves.

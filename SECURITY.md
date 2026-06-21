@@ -1,63 +1,58 @@
 # Security
 
-Codex DeepSeek Bridge runs locally and forwards Codex requests to DeepSeek. That makes key handling and local logs important.
+Codex DeepSeek Bridge runs locally and forwards Codex requests to DeepSeek. Key handling and local
+logs are the security-sensitive parts.
 
-## API Keys
+## The DeepSeek key
 
-- Do not commit real API keys.
-- In Profile Mode, prefer passing `DEEPSEEK_API_KEY` through your shell, OS secret manager, or process supervisor.
-- In App Login Mode, Codex stores a DeepSeek key through Codex API-key login while the active provider points at the local bridge.
-- A DeepSeek API key is not a ChatGPT account and not an OpenAI Platform key.
-- When `DEEPSEEK_API_KEY` is absent and `DSCB_BRIDGE_API_KEY` is not set, the bridge accepts Codex's bearer token as the DeepSeek upstream key. This supports App Login Mode.
-- When `DSCB_BRIDGE_API_KEY` is set, Codex must present that local bridge token and the bridge uses `DEEPSEEK_API_KEY` for upstream DeepSeek calls.
-- Error messages and logs redact `sk-...` style keys and bearer tokens.
+The key is a secret and is handled accordingly:
 
-## Codex Auth Boundary
+- It is read from `--from-stdin` or `DEEPSEEK_API_KEY` only — never as a command-line argument (which
+  would land in shell history and process listings).
+- It is never placed in a Codex prompt or in `~/.codex/sessions` logs.
+- It is stored at `<bridgeHome>/deepseek-key` with owner-only permissions (`chmod 600` on macOS, an
+  owner-only ACL on Windows).
+- It is never printed, logged, or committed. Error messages and logs redact `sk-...` keys and
+  `Bearer ...` tokens.
 
-Profile Mode does not replace ChatGPT/OpenAI sign-in.
+Key resolution at request time: process environment, then the stored key file, then the bearer Codex
+forwards (because the provider uses `requires_openai_auth = true`). If `DSCB_BRIDGE_API_KEY` is set,
+the incoming bearer only gates the bridge and the upstream key must come from the environment or the
+stored file.
 
-App Login Mode intentionally changes the active local Codex provider and stores a DeepSeek key through Codex API-key auth for the current `CODEX_HOME`. Use it for DeepSeek-key-only app workflows, then undo it with:
+## Login safety
 
-```bash
-codex-deepseek-bridge restore --logout
-```
+- `setup` auto-signs you in with `codex login --with-api-key` only when no existing Codex auth is
+  detected, and only by piping the key over stdin.
+- `setup` never calls `codex logout`. A ChatGPT user is only ever told how to switch login.
+- `restore --logout` is the explicit, user-invoked way to remove the API-key login that setup
+  created.
 
-Codex app sign-in, Codex cloud, remote plugin sync, and workspace features may still require normal ChatGPT/OpenAI authentication. This bridge is a local model path, not a replacement for Codex account services.
+## Reversibility
 
-## Local Logs
+`setup` backs up `config.toml` before writing and records the backup path. `restore` prefers
+restoring that exact backup; otherwise it strips only the managed block. It always takes a
+pre-restore backup first, so no write is destructive without a recoverable copy.
 
-Metadata logs default to:
+## Network and report
 
-```text
-~/.codex/codex-deepseek-bridge/logs
-```
+The bridge binds `127.0.0.1` only. Outbound access is limited to DeepSeek and (optionally) public
+GitHub release metadata for the update check, which uploads nothing and can be disabled with
+`DSCB_UPDATE_CHECK=off` or `DO_NOT_TRACK=1`. The report is read-only and served from the same local
+process; do not expose the bridge to a public interface.
 
-They are used by `/report` and `cache-report`.
+## Binary distribution
 
-By default, logs contain request metadata, response usage, cache fields, prompt hashes, role sequences, lengths, tool hashes, and status fields. They do not contain prompt text.
+Release binaries are published with a `.sha256` for verification. They are unsigned for now, so macOS
+shows Gatekeeper and Windows shows SmartScreen; the README documents how to proceed. `upgrade`
+verifies a downloaded binary's checksum before swapping and keeps the previous binary for rollback;
+it never swaps on a mismatch.
 
-Set `DSCB_LOG_PAYLOADS=1` only when you intentionally want redacted request and response payloads written to disk for debugging.
+## Reporting issues
 
-Disable metadata logs with:
+If you find a security issue, do not include secrets, logs, or transcripts in public issues. Open a
+minimal issue describing the class of problem and offer to share details privately.
 
-```bash
-DSCB_LOG_DIR=off codex-deepseek-bridge serve
-```
+## Supported versions
 
-## Report Server
-
-The report is served from the same local bridge server:
-
-```text
-http://127.0.0.1:8787/report
-```
-
-Keep the bridge bound to `127.0.0.1` unless you understand the network exposure. Do not bind it to a public interface with real credentials.
-
-## Reporting Issues
-
-If you find a security issue, do not include secrets, logs, or user transcripts in public issues. Open a minimal issue describing the class of problem and offer to share details privately.
-
-## Supported Versions
-
-Until the project reaches `1.0.0`, only the latest released version is expected to receive security fixes.
+Until `1.0.0`, only the latest released version is expected to receive security fixes.

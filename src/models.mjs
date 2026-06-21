@@ -1,126 +1,68 @@
-export const DEFAULT_CODEX_MODEL = "deepseek-v4-pro";
-export const DEFAULT_UPSTREAM_MODEL = "deepseek-v4-pro";
-export const LEGACY_CODEX_MODEL = "deepseek-codex";
+// Codex-facing model slugs. These never change. The upstream DeepSeek model each
+// one maps to is configurable (DEEPSEEK_MODEL_PRO / DEEPSEEK_MODEL_FLASH) so a new
+// DeepSeek generation is a one-line default change, not a Codex-facing rename.
+export const DEFAULT_CODEX_MODEL = "deepseek-pro";
+export const UPSTREAM_PRO_DEFAULT = "deepseek-v4-pro";
+export const UPSTREAM_FLASH_DEFAULT = "deepseek-v4-flash";
+export const DEFAULT_UPSTREAM_MODEL = UPSTREAM_PRO_DEFAULT;
 
 export const MODEL_PRESETS = [
   {
-    id: "deepseek-v4-pro",
-    upstreamModel: "deepseek-v4-pro",
-    displayName: "DeepSeek V4 Pro",
-    description: "DeepSeek V4 Pro through a local Responses-compatible bridge for OpenAI Codex.",
-    thinking: "auto",
+    slug: "deepseek-pro",
+    displayName: "DeepSeek Pro",
+    description: "DeepSeek Pro via the local Codex DeepSeek Bridge.",
     priority: 10,
   },
   {
-    id: "deepseek-v4-flash",
-    upstreamModel: "deepseek-v4-flash",
-    displayName: "DeepSeek V4 Flash",
-    description: "DeepSeek V4 Flash through a local Responses-compatible bridge for OpenAI Codex.",
-    thinking: "auto",
+    slug: "deepseek-flash",
+    displayName: "DeepSeek Flash",
+    description: "DeepSeek Flash via the local Codex DeepSeek Bridge.",
     priority: 9,
-  },
-  {
-    id: "deepseek-v4-pro-no-thinking",
-    upstreamModel: "deepseek-v4-pro",
-    displayName: "DeepSeek V4 Pro (No Thinking)",
-    description: "DeepSeek V4 Pro with DeepSeek thinking disabled by the bridge.",
-    thinking: "disabled",
-    priority: 8,
-  },
-  {
-    id: "deepseek-v4-flash-no-thinking",
-    upstreamModel: "deepseek-v4-flash",
-    displayName: "DeepSeek V4 Flash (No Thinking)",
-    description: "DeepSeek V4 Flash with DeepSeek thinking disabled by the bridge.",
-    thinking: "disabled",
-    priority: 7,
   },
 ];
 
-const PRESETS_BY_ID = new Map(MODEL_PRESETS.map((model) => [model.id, model]));
-
-export function knownModelIds() {
-  return MODEL_PRESETS.map((model) => model.id);
-}
-
-export function resolveModelRequest(requestedModel, config = {}) {
-  const codexModel = requestedModel || config.modelAlias || DEFAULT_CODEX_MODEL;
-  const preset = PRESETS_BY_ID.get(codexModel);
-  if (preset) {
-    return {
-      codexModel,
-      upstreamModel: preset.upstreamModel,
-      thinking: preset.thinking,
-      preset,
-    };
-  }
-
-  if (codexModel === LEGACY_CODEX_MODEL || codexModel === config.modelAlias) {
-    return {
-      codexModel,
-      upstreamModel: config.upstreamModel || DEFAULT_UPSTREAM_MODEL,
-      thinking: "auto",
-      preset: null,
-    };
-  }
-
+export function resolveUpstreamModels(env = process.env) {
   return {
-    codexModel,
-    upstreamModel: codexModel,
-    thinking: "auto",
-    preset: null,
+    "deepseek-pro": env.DEEPSEEK_MODEL_PRO || UPSTREAM_PRO_DEFAULT,
+    "deepseek-flash": env.DEEPSEEK_MODEL_FLASH || UPSTREAM_FLASH_DEFAULT,
   };
 }
 
-export function catalogModels({
-  customAlias,
-  customUpstreamModel = DEFAULT_UPSTREAM_MODEL,
-  vision = false,
-} = {}) {
-  const models = [...MODEL_PRESETS];
-  if (customAlias && !PRESETS_BY_ID.has(customAlias)) {
-    models.push({
-      id: customAlias,
-      upstreamModel: customUpstreamModel,
-      displayName: `${customAlias} via Codex DeepSeek Bridge`,
-      description: `${customUpstreamModel} through a local Responses-compatible bridge for OpenAI Codex.`,
-      thinking: "auto",
-      priority: 6,
-    });
-  }
-  return models.map((model) => modelCatalogEntry(model, { vision }));
+export function knownModelIds() {
+  return MODEL_PRESETS.map((model) => model.slug);
 }
 
-function reasoningMetadata(model) {
-  if (model.thinking === "disabled") {
-    return {
-      default_reasoning_level: "high",
-      supported_reasoning_levels: [
-        {
-          effort: "high",
-          description: "Ignored by the bridge; DeepSeek thinking is disabled",
-        },
-        {
-          effort: "xhigh",
-          description: "Ignored by the bridge; DeepSeek thinking is disabled",
-        },
-      ],
-      default_reasoning_summary: "none",
-      supports_reasoning_summaries: false,
-    };
+// Fold any requested model (including legacy or dated slugs like deepseek-v4-pro)
+// to one of the two known Codex-facing slugs so old sessions keep working.
+export function foldToKnownSlug(requestedModel) {
+  const value = String(requestedModel || DEFAULT_CODEX_MODEL).toLowerCase();
+  if (value.includes("flash")) {
+    return "deepseek-flash";
   }
+  return "deepseek-pro";
+}
 
+export function resolveModelRequest(requestedModel, config = {}) {
+  const upstreamModels = config.upstreamModels || resolveUpstreamModels();
+  const slug = foldToKnownSlug(requestedModel);
   return {
-    default_reasoning_level: "high",
-    supported_reasoning_levels: [
-      {
-        effort: "high",
-        description: "DeepSeek high reasoning effort",
-      },
-      {
-        effort: "xhigh",
-        description: "Mapped to DeepSeek max reasoning effort",
-      },
+    codexModel: requestedModel || DEFAULT_CODEX_MODEL,
+    slug,
+    upstreamModel: upstreamModels[slug] || upstreamModels["deepseek-pro"] || UPSTREAM_PRO_DEFAULT,
+  };
+}
+
+export function catalogModels({ vision = false } = {}) {
+  return MODEL_PRESETS.map((model) => modelCatalogEntry(model, { vision }));
+}
+
+function reasoningMetadata() {
+  return {
+    default_reasoning_effort: "high",
+    supported_reasoning_efforts: [
+      { effort: "none", description: "No thinking (fastest)" },
+      { effort: "high", description: "DeepSeek thinking" },
+      { effort: "xhigh", description: "DeepSeek maximum thinking" },
     ],
     default_reasoning_summary: "auto",
     supports_reasoning_summaries: true,
@@ -128,16 +70,15 @@ function reasoningMetadata(model) {
 }
 
 export function modelCatalogEntry(model, { vision = false } = {}) {
-  const reasoning = reasoningMetadata(model);
   return {
-    slug: model.id,
-    id: model.id,
+    slug: model.slug,
+    id: model.slug,
     display_name: model.displayName,
     displayName: model.displayName,
     description: model.description,
     base_instructions:
       "You are Codex, a coding agent working in the user's local workspace. Help with software tasks end to end: inspect the project before changing it, use tools when useful, keep edits scoped, avoid reverting user changes, verify your work, and report the result clearly.",
-    ...reasoning,
+    ...reasoningMetadata(),
     context_window: 1000000,
     max_context_window: 1000000,
     max_output_tokens: 384000,

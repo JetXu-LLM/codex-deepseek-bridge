@@ -1,16 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configFromArgs } from "../src/config.mjs";
+import { buildRuntimeConfig, configFromArgs } from "../src/config.mjs";
 import {
+  buildChatMessages,
   buildDeepSeekRequest,
   buildToolRegistry,
-  buildChatMessages,
   convertDeepSeekMessageToItems,
   mapDeepSeekThinking,
+  normalizeReasoningEffort,
   responseOutputText,
   usageFromDeepSeek,
 } from "../src/translate.mjs";
-import { buildCodexLegacyProfile, buildModelCatalog } from "../src/catalog.mjs";
+import { buildModelCatalog } from "../src/catalog.mjs";
+import { resolveModelRequest } from "../src/models.mjs";
 
 test("wraps Codex custom freeform tools as function tools", () => {
   const registry = buildToolRegistry([
@@ -29,73 +31,101 @@ test("wraps Codex custom freeform tools as function tools", () => {
 
 test("builds DeepSeek request from Responses input and tools", () => {
   const request = {
-    model: "deepseek-v4-pro",
+    model: "deepseek-pro",
     instructions: "You are Codex.",
     input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "List files" }] }],
     tools: [{ type: "function", name: "list_files", parameters: { type: "object", properties: {} } }],
     stream: true,
     reasoning: { effort: "xhigh" },
   };
-  const config = {
-    modelAlias: "deepseek-v4-pro",
-    upstreamModel: "deepseek-v4-pro",
-    thinking: "enabled",
-    enableVision: false,
-  };
+  const config = buildRuntimeConfig({});
   const registry = buildToolRegistry(request.tools);
   const body = buildDeepSeekRequest(request, registry, config);
 
   assert.equal(body.model, "deepseek-v4-pro");
   assert.equal(body.stream, true);
+  assert.deepEqual(body.thinking, { type: "enabled" });
   assert.equal(body.reasoning_effort, "max");
   assert.equal(body.messages[0].role, "system");
   assert.equal(body.messages[1].content, "List files");
   assert.equal(body.tools[0].function.name, "list_files");
 });
 
-test("routes Pro, Flash, and no-thinking model variants", () => {
+test("routes the two Codex slugs and maps the three reasoning efforts", () => {
   const registry = buildToolRegistry([]);
-  const config = {
-    modelAlias: "deepseek-v4-pro",
-    upstreamModel: "deepseek-v4-pro",
-    thinking: "enabled",
-    enableVision: false,
-  };
+  const config = buildRuntimeConfig({});
 
-  const flash = buildDeepSeekRequest({ model: "deepseek-v4-flash", input: "fast" }, registry, config);
+  const flash = buildDeepSeekRequest({ model: "deepseek-flash", input: "fast" }, registry, config);
   assert.equal(flash.model, "deepseek-v4-flash");
   assert.deepEqual(flash.thinking, { type: "enabled" });
   assert.equal(flash.reasoning_effort, "high");
 
-  const noThinking = buildDeepSeekRequest({ model: "deepseek-v4-pro-no-thinking", input: "fast" }, registry, config);
-  assert.equal(noThinking.model, "deepseek-v4-pro");
-  assert.deepEqual(noThinking.thinking, { type: "disabled" });
-  assert.equal(noThinking.reasoning_effort, undefined);
+  const none = buildDeepSeekRequest({ model: "deepseek-pro", input: "fast", reasoning: { effort: "none" } }, registry, config);
+  assert.deepEqual(none.thinking, { type: "disabled" });
+  assert.equal(none.reasoning_effort, undefined);
+
+  const xhigh = buildDeepSeekRequest({ model: "deepseek-pro", input: "deep", reasoning: { effort: "xhigh" } }, registry, config);
+  assert.deepEqual(xhigh.thinking, { type: "enabled" });
+  assert.equal(xhigh.reasoning_effort, "max");
 });
 
-test("maps Codex thinking effort to DeepSeek controls", () => {
+test("maps Codex reasoning effort to DeepSeek thinking controls", () => {
   assert.deepEqual(mapDeepSeekThinking({ effort: "none" }), { thinking: { type: "disabled" } });
+  assert.deepEqual(mapDeepSeekThinking({ effort: "minimal" }), { thinking: { type: "disabled" } });
+  assert.deepEqual(mapDeepSeekThinking({ effort: "low" }), { thinking: { type: "enabled" }, reasoning_effort: "high" });
   assert.deepEqual(mapDeepSeekThinking({ effort: "medium" }), { thinking: { type: "enabled" }, reasoning_effort: "high" });
+  assert.deepEqual(mapDeepSeekThinking({ effort: "high" }), { thinking: { type: "enabled" }, reasoning_effort: "high" });
   assert.deepEqual(mapDeepSeekThinking({ effort: "xhigh" }), { thinking: { type: "enabled" }, reasoning_effort: "max" });
-  assert.deepEqual(mapDeepSeekThinking({ configuredThinking: "none", effort: "xhigh" }), { thinking: { type: "disabled" } });
+  assert.deepEqual(mapDeepSeekThinking({ effort: "max" }), { thinking: { type: "enabled" }, reasoning_effort: "max" });
+  // Default (no effort) is high.
+  assert.deepEqual(mapDeepSeekThinking({}), { thinking: { type: "enabled" }, reasoning_effort: "high" });
 });
 
-test("model catalog exposes Pro, Flash, and no-thinking variants", () => {
+test("normalizeReasoningEffort folds to none/high/xhigh", () => {
+  assert.equal(normalizeReasoningEffort("none"), "none");
+  assert.equal(normalizeReasoningEffort("minimal"), "none");
+  assert.equal(normalizeReasoningEffort("low"), "high");
+  assert.equal(normalizeReasoningEffort("medium"), "high");
+  assert.equal(normalizeReasoningEffort("high"), "high");
+  assert.equal(normalizeReasoningEffort(undefined), "high");
+  assert.equal(normalizeReasoningEffort("xhigh"), "xhigh");
+  assert.equal(normalizeReasoningEffort("max"), "xhigh");
+});
+
+test("resolveModelRequest folds legacy slugs to the two known slugs", () => {
+  const config = buildRuntimeConfig({});
+  assert.deepEqual(resolveModelRequest("deepseek-pro", config), {
+    codexModel: "deepseek-pro",
+    slug: "deepseek-pro",
+    upstreamModel: "deepseek-v4-pro",
+  });
+  assert.equal(resolveModelRequest("deepseek-v4-flash", config).slug, "deepseek-flash");
+  assert.equal(resolveModelRequest("deepseek-v4-flash", config).upstreamModel, "deepseek-v4-flash");
+  assert.equal(resolveModelRequest("deepseek-codex", config).slug, "deepseek-pro");
+  assert.equal(resolveModelRequest(undefined, config).slug, "deepseek-pro");
+});
+
+test("model catalog exposes exactly two slugs and three reasoning efforts", () => {
   const catalog = buildModelCatalog();
   const slugs = catalog.models.map((model) => model.slug);
-  assert.deepEqual(slugs.slice(0, 4), [
-    "deepseek-v4-pro",
-    "deepseek-v4-flash",
-    "deepseek-v4-pro-no-thinking",
-    "deepseek-v4-flash-no-thinking",
-  ]);
-  assert.equal(catalog.models[0].displayName, "DeepSeek V4 Pro");
+  assert.deepEqual(slugs, ["deepseek-pro", "deepseek-flash"]);
+  assert.equal(catalog.models[0].display_name, "DeepSeek Pro");
+  assert.equal(catalog.models[1].display_name, "DeepSeek Flash");
+  assert.equal(catalog.models[0].default_reasoning_effort, "high");
+  assert.deepEqual(
+    catalog.models[0].supported_reasoning_efforts.map((entry) => entry.effort),
+    ["none", "high", "xhigh"],
+  );
+  assert.deepEqual(catalog.models[0].input_modalities, ["text"]);
 });
 
-test("runtime config keeps env vision flag when CLI flag is absent", () => {
-  const config = configFromArgs({}, { DEEPSEEK_ENABLE_VISION: "1", DEEPSEEK_MODEL: "deepseek-v4-flash" });
+test("runtime config maps upstream models from env and keeps vision flag", () => {
+  const config = configFromArgs({}, { DEEPSEEK_ENABLE_VISION: "1", DEEPSEEK_MODEL_PRO: "deepseek-v5-pro" });
   assert.equal(config.enableVision, true);
-  assert.equal(config.modelAlias, "deepseek-v4-flash");
+  assert.equal(config.modelAlias, "deepseek-pro");
+  assert.equal(config.upstreamModels["deepseek-pro"], "deepseek-v5-pro");
+  assert.equal(config.upstreamModels["deepseek-flash"], "deepseek-v4-flash");
+  assert.equal(config.upstreamModel, "deepseek-v5-pro");
 });
 
 test("converts DeepSeek tool calls back to Responses output items", () => {
@@ -156,17 +186,4 @@ test("maps DeepSeek cache usage fields", () => {
   assert.equal(usage.input_tokens_details.cached_tokens, 80);
   assert.equal(usage.input_tokens_details.prompt_cache_hit_tokens, 80);
   assert.equal(usage.input_tokens_details.prompt_cache_miss_tokens, 20);
-});
-
-test("legacy Codex profile keeps provider at top level", () => {
-  const profile = buildCodexLegacyProfile({
-    alias: "deepseek-v4-pro",
-    baseUrl: "http://127.0.0.1:8787/v1",
-    catalogPath: "/tmp/models.json",
-    profileName: "deepseek",
-  });
-
-  assert.match(profile, /\[model_providers\.deepseek_bridge\]/);
-  assert.match(profile, /\[profiles\.deepseek\]/);
-  assert.doesNotMatch(profile, /\[profiles\.deepseek\.model_providers/);
 });
