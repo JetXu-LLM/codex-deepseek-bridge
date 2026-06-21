@@ -1,6 +1,10 @@
 # Platforms And Upgrades
 
-Codex DeepSeek Bridge supports macOS and Windows. The flow is the same on both:
+Codex DeepSeek Bridge supports macOS and the Codex-supported Windows line. Windows 11 is the best
+target for Desktop validation; recent fully updated Windows 10 is best effort. Windows 7 is not a
+meaningful Codex Desktop test target.
+
+The flow is the same on supported systems:
 
 1. Get the bridge (binary, GitHub npm install, or the Path A prompt).
 2. Run `setup` and paste your DeepSeek key when the terminal asks for it, unless a key is already
@@ -64,9 +68,9 @@ app-server returns the DeepSeek catalog. This is tracked upstream in
 setup publishes `deepseek-pro` only. With the patch active, setup publishes `deepseek-pro` and
 `deepseek-flash`.
 
-Interactive `setup` asks before applying the reversible local picker patch. Automation can apply it
-explicitly with `setup --desktop-patch`. The patch makes the picker use the local catalog's
-`hidden` flag instead of that allowlist gate.
+Plain `setup` skips the reversible local picker patch and publishes `deepseek-pro` only. Apply the
+patch explicitly with `setup --desktop-patch` or `DSCB_DESKTOP_PATCH=on`. The patch makes the picker
+use the local catalog's `hidden` flag instead of that allowlist gate.
 
 On macOS, the patch touches:
 

@@ -162,6 +162,29 @@ function openInBrowser(url) {
   }
 }
 
+function displayHost(config) {
+  return config.host === "127.0.0.1" ? "localhost" : config.host;
+}
+
+function reportUrl(config, port) {
+  return `http://${displayHost(config)}:${port}/report`;
+}
+
+async function waitForHealth(port, attempts = 20) {
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/health`);
+      if (response.ok) {
+        return true;
+      }
+    } catch {
+      // The daemon may still be starting.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return false;
+}
+
 async function appendUpdateLine(currentVersion, env, bridgeHome) {
   if (updateCheckDisabled(env)) {
     return;
@@ -192,7 +215,7 @@ function catalogIncludesFlash(stateOrResult) {
 function setupSuccessMessage(result, started) {
   const loginMode = result.loginMode;
   const runningLine = started
-    ? `Bridge running: http://127.0.0.1:${result.port}/report`
+    ? `Bridge running: http://localhost:${result.port}/report`
     : "Start the bridge with: codex-deepseek-bridge start";
   const modelLine = catalogIncludesFlash(result)
     ? "Next: restart Codex, then pick deepseek-pro or deepseek-flash."
@@ -304,14 +327,7 @@ async function maybePatchCodexDesktop(args, env, bridgeHome) {
 
   const explicit = args["desktop-patch"] === true || env.DSCB_DESKTOP_PATCH === "on";
   if (!explicit) {
-    out("Codex Desktop is filtering custom catalog models before they reach the picker.");
-    out("The optional picker patch modifies local Codex Desktop app files. On macOS it also updates Electron ASAR integrity and re-signs locally.");
-    out("On Windows Store installs it may create a managed writable Codex copy and launcher instead of touching WindowsApps.");
-    out("A normal restore will put the original files back or remove the managed copy.");
-    const ok = await confirm("Apply the Codex Desktop picker patch now? [y/N] ");
-    if (!ok) {
-      return { status: "needs-consent" };
-    }
+    return { status: "needs-consent" };
   }
 
   return patchCodexDesktop({ env, bridgeHome });
@@ -376,7 +392,7 @@ async function cmdStart(args, env, config) {
   const state = readInstallState(bridgeHome);
   const existingPid = readPid(config.pidFile);
   if (isRunning(existingPid)) {
-    out(`Bridge already running on http://127.0.0.1:${state?.port || config.port}.`);
+    out(`Bridge already running on http://${displayHost(config)}:${state?.port || config.port}.`);
     return 0;
   }
 
@@ -397,18 +413,25 @@ async function cmdStart(args, env, config) {
     });
   }
   launchDaemon(config, port, env);
-  out(`Bridge started on http://127.0.0.1:${port} (report at /report).`);
+  out(`Bridge started on http://${displayHost(config)}:${port} (report at /report).`);
   return 0;
 }
 
 // ---- report -----------------------------------------------------------------
 
-function cmdReport(args, env, config) {
+async function cmdReport(args, env, config) {
   const state = readInstallState(defaultBridgeHome(env));
   const port = resolvedPort(args, state, config);
-  const url = `http://127.0.0.1:${port}/report`;
+  const url = reportUrl(config, port);
+  const pid = readPid(config.pidFile);
+  let started = false;
+  if (!isRunning(pid)) {
+    launchDaemon(config, port, env);
+    started = true;
+    await waitForHealth(port);
+  }
   if (openInBrowser(url)) {
-    out(`Opening ${url}`);
+    out(started ? `Started the bridge and opening ${url}` : `Opening ${url}`);
   } else {
     out(url);
   }
@@ -646,7 +669,7 @@ async function cmdUpgrade(args, env, config) {
   if (reconcile.catalogChanged || desktopPatch.status === "patched") {
     out(`Upgraded to ${latest}. Bridge restarted. Restart Codex to pick up the model catalog and picker state.`);
   } else {
-    out(`Upgraded to ${latest}. Bridge restarted on http://127.0.0.1:${reconcile.port}.`);
+    out(`Upgraded to ${latest}. Bridge restarted on http://${displayHost(config)}:${reconcile.port}.`);
   }
   out(`Changelog: ${REPO_URL}/releases/tag/v${latest}`);
   return 0;
@@ -671,7 +694,7 @@ async function cmdStatus(env, config) {
   const port = state?.port || config.port;
   const running = isRunning(readPid(config.pidFile));
   if (running) {
-    out(`Bridge running on http://127.0.0.1:${port} (report at /report).`);
+    out(`Bridge running on http://${displayHost(config)}:${port} (report at /report).`);
   } else {
     out("Bridge not running. Start it with: codex-deepseek-bridge start");
   }

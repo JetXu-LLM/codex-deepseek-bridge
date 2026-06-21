@@ -27,15 +27,14 @@ DeepSeek catalog correctly, but the renderer may still filter out custom models,
 Without the Desktop patch, setup intentionally publishes `deepseek-pro` only. `deepseek-flash` is
 published only when the Desktop picker patch is active.
 
-`setup` detects that Desktop bundle and asks before applying a reversible local picker patch. Run:
+Plain `setup` leaves the Desktop app untouched. To apply the reversible local picker patch, run:
 
 ```bash
-codex-deepseek-bridge setup
+codex-deepseek-bridge setup --desktop-patch
 codex-deepseek-bridge doctor
 ```
 
-`doctor` should report `Desktop picker patch: patched`. If it says `needs setup`, run
-`codex-deepseek-bridge setup --desktop-patch` to apply the patch explicitly. If it says
+`doctor` should report `Desktop picker patch: patched`. If it says
 `unrecognized Desktop build`, your Codex Desktop version changed enough that the bridge refused to
 patch it. Open an issue with the Codex version and the `doctor` output.
 
@@ -61,8 +60,8 @@ codex-deepseek-bridge doctor --live
 - **Bridge offline** → start it: `codex-deepseek-bridge start`.
 - **Key rejected** → your DeepSeek key is wrong or missing. Re-run `codex-deepseek-bridge setup`
   and paste the right key when the terminal asks for it.
-- **DeepSeek returned an error status** → an upstream problem. Open the report for details:
-  `http://127.0.0.1:8787/report`.
+- **DeepSeek returned an error status** → an upstream problem. Open the report for details with
+  `codex-deepseek-bridge report`.
 
 ## Codex says the model catalog is invalid
 
@@ -148,7 +147,7 @@ Config-only setup uses `deepseek-pro`. With the Desktop picker patch active, the
 
 ## Cache hit rate is lower than expected
 
-Open `http://127.0.0.1:8787/report`. DeepSeek cache hits need a stable, fully matching prefix. If the
+Run `codex-deepseek-bridge report`. DeepSeek cache hits need a stable, fully matching prefix. If the
 system prompt, tool schema, or model changes between turns, or volatile values (timestamps, temp
 paths, UUIDs) enter the prompt, expect misses. The report classifies prefix risk and points at the
 likely cause. The bridge does not rewrite prompts; it reports so you can diagnose.

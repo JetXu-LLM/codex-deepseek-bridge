@@ -18,7 +18,7 @@ does not replay model outputs. It records the cache usage fields DeepSeek return
 The report is served by the same process as the bridge:
 
 ```
-http://127.0.0.1:8787/report
+http://localhost:8787/report
 ```
 
 It shows:

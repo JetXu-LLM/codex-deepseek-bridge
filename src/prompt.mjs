@@ -15,6 +15,6 @@ Steps:
 5. Do not replace my Codex login. Keep my ChatGPT login if I have one, and keep API-key mode if
    that is how I already use Codex. Existing local history should stay visible. The bridge should
    use the local stored DeepSeek key, not Codex's login token.
-6. Start the bridge in the background and confirm http://127.0.0.1:8787/report loads.
+6. Start the bridge in the background and confirm http://localhost:8787/report loads.
 7. Tell me to restart Codex, and show me the command to start the bridge again next time.
 `;

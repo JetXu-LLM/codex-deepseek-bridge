@@ -123,6 +123,40 @@ test("re-running setup is idempotent: one block, key and original backup preserv
   assert.equal(fs.readFileSync(path.join(bridgeHome, "deepseek-key"), "utf8").trim(), "deepseek-one");
 });
 
+test("re-running setup with Desktop patch active updates the catalog without duplicating config", () => {
+  const root = tempRoot();
+  const codexHome = path.join(root, "codex");
+  const bridgeHome = path.join(root, "bridge");
+
+  const first = configureCodex({
+    codexHome,
+    bridgeHome,
+    apiKey: "deepseek-one",
+    includeFlash: false,
+    runCodex: makeRunCodex([]),
+  });
+  assert.deepEqual(JSON.parse(fs.readFileSync(first.catalogPath, "utf8")).models.map((entry) => entry.slug), [
+    "deepseek-pro",
+  ]);
+
+  const second = configureCodex({
+    codexHome,
+    bridgeHome,
+    apiKey: "",
+    includeFlash: true,
+    runCodex: makeRunCodex([]),
+  });
+
+  const config = fs.readFileSync(second.configPath, "utf8");
+  assert.equal((config.match(/# >>> codex-deepseek-bridge/g) || []).length, 1);
+  assert.equal(second.backupPath, first.backupPath);
+  assert.deepEqual(JSON.parse(fs.readFileSync(second.catalogPath, "utf8")).models.map((entry) => entry.slug), [
+    "deepseek-pro",
+    "deepseek-flash",
+  ]);
+  assert.equal(fs.readFileSync(path.join(bridgeHome, "deepseek-key"), "utf8").trim(), "deepseek-one");
+});
+
 // Returns the TOML table a key's first occurrence belongs to ("" = root).
 function tableOf(configText, key) {
   let section = "";

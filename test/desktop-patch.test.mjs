@@ -147,7 +147,7 @@ test("patchCodexDesktop backs up the root executable and signs the root bundle o
     commands.push([command, args]);
   };
 
-  const result = patchCodexDesktop({ appAsarPath: bundle.appAsar, bridgeHome, runCommand });
+  const result = patchCodexDesktop({ appAsarPath: bundle.appAsar, bridgeHome, runCommand, platform: "darwin" });
 
   assert.equal(result.status, "patched");
   assert.ok(result.rootExecutableBackupPath);
@@ -181,11 +181,11 @@ test("restoreCodexDesktopPatch restores the root executable and re-signs if veri
     }
   };
 
-  const patch = patchCodexDesktop({ appAsarPath: bundle.appAsar, bridgeHome, runCommand });
+  const patch = patchCodexDesktop({ appAsarPath: bundle.appAsar, bridgeHome, runCommand, platform: "darwin" });
   assert.equal(patch.status, "patched");
   assert.equal(fs.readFileSync(bundle.rootExecutable, "utf8"), "executable-signed");
 
-  const restore = restoreCodexDesktopPatch({ appAsarPath: bundle.appAsar, bridgeHome, runCommand });
+  const restore = restoreCodexDesktopPatch({ appAsarPath: bundle.appAsar, bridgeHome, runCommand, platform: "darwin" });
   const signCommands = commands.filter(([command, args]) => command === "codesign" && args.includes("--sign"));
   const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
 
@@ -230,7 +230,7 @@ test("restoreCodexDesktopPatch repairs a stale inactive state with failed signat
     }
   };
 
-  const restore = restoreCodexDesktopPatch({ appAsarPath: bundle.appAsar, bridgeHome, runCommand });
+  const restore = restoreCodexDesktopPatch({ appAsarPath: bundle.appAsar, bridgeHome, runCommand, platform: "darwin" });
   const signCommands = commands.filter(([command, args]) => command === "codesign" && args.includes("--sign"));
   const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
 

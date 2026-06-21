@@ -63,14 +63,14 @@ sequenceDiagram
   Bridge->>DeepSeek: /chat/completions
 ```
 
-When that exact bundle shape is detected, interactive `setup` asks before patching the renderer's
-allowlist gate so visible models are decided by the local catalog's `hidden` flag. Automation can
-opt in with `setup --desktop-patch`.
+When that exact bundle shape is detected, plain `setup` skips the Desktop patch and prints the
+explicit opt-in command. Run `setup --desktop-patch` or set `DSCB_DESKTOP_PATCH=on` to patch the
+renderer's allowlist gate so visible models are decided by the local catalog's `hidden` flag.
 
 The patch is conservative:
 
 - It is skipped with `DSCB_DESKTOP_PATCH=off`.
-- It requires interactive confirmation, `setup --desktop-patch`, or `DSCB_DESKTOP_PATCH=on`.
+- It requires `setup --desktop-patch` or `DSCB_DESKTOP_PATCH=on`.
 - It only applies when the known picker filter appears exactly once.
 - On macOS, it updates the ASAR file integrity metadata in `Info.plist`.
 - On macOS, it re-signs the local Codex app bundle after patching, without deep-signing nested code.

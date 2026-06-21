@@ -5,6 +5,31 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.11
+
+Polishes the Windows/Desktop-patch release and the direct user setup path.
+
+### Added
+
+- `report` now starts the local bridge when needed and opens the local report page in the browser.
+- Added regression coverage for running config-only `setup` first, then re-running
+  `setup --desktop-patch`; the catalog upgrades from `deepseek-pro` to
+  `deepseek-pro` + `deepseek-flash` without duplicating the managed config block.
+
+### Fixed
+
+- macOS Desktop signing/restore tests now force the macOS patch path when they run on non-macOS CI
+  workers. This keeps the Windows release job focused on the Windows-specific tests and lets the
+  `codex-deepseek-bridge-win-x64.exe` asset build normally.
+
+### Changed
+
+- Plain `setup` no longer prompts to patch Codex Desktop app files. The Desktop picker patch now
+  requires explicit opt-in with `setup --desktop-patch` or `DSCB_DESKTOP_PATCH=on`.
+- README now leads with direct macOS and Windows download-and-run commands, documents the upstream
+  Codex Desktop custom-model issues, and explains config-only versus Desktop-patched behavior.
+- User-facing report URLs now prefer `localhost`; the bridge still binds to `127.0.0.1`.
+
 ## 0.1.10
 
 Adds a safer Desktop patch rollout model and Windows picker-patch support.
