@@ -24,6 +24,7 @@ export function buildManagedConfigBlock({
   baseUrl = "http://127.0.0.1:8787/v1",
   catalogPath,
   reasoningEffort = "high",
+  requiresOpenAiAuth = false,
 } = {}) {
   const lines = [
     MANAGED_BLOCK_START,
@@ -37,7 +38,7 @@ export function buildManagedConfigBlock({
     `name = ${tomlString(BRIDGE_PROVIDER_NAME)}`,
     `base_url = ${tomlString(baseUrl)}`,
     'wire_api = "responses"',
-    "requires_openai_auth = true",
+    `requires_openai_auth = ${requiresOpenAiAuth ? "true" : "false"}`,
     MANAGED_BLOCK_END,
     "",
   ];

@@ -20,7 +20,8 @@ calls to DeepSeek.
 ### Already using Codex? Paste one prompt.
 
 Open Codex and paste this. It reads this repo, installs the bridge, configures Codex, and starts the
-background service. It will ask you to paste your DeepSeek key into the terminal — not into the chat.
+background service. It will ask you to paste your DeepSeek key into the terminal if the key is not
+already stored on this machine — never into the chat.
 
 ```text
 Set up Codex DeepSeek Bridge on this machine so Codex runs on DeepSeek.
@@ -29,11 +30,11 @@ put it in your replies, never commit it.
 Steps:
 1. Read https://github.com/JetXu-LLM/codex-deepseek-bridge and follow its setup.
 2. If I have Node, install with npm; otherwise download the binary for my OS from the latest release.
-3. Run the setup so it asks me to paste my DeepSeek API key in the terminal (stdin), not in this chat.
+3. Run setup. If no DeepSeek key is already stored on this machine, ask me to paste it in the
+   terminal (stdin), not in this chat.
 4. Back up my Codex config, then point Codex at the DeepSeek bridge (models deepseek-pro, deepseek-flash).
-5. If I am not signed in to Codex, sign me in with my DeepSeek key. If I am signed in with ChatGPT,
-   do not change my login — tell me to log out in Codex, choose "Sign in another way", and enter my
-   DeepSeek key.
+5. Do not replace my Codex login. Keep my ChatGPT login if I have one, so my history stays visible.
+   The bridge should use the local stored DeepSeek key, not Codex's login token.
 6. Start the bridge in the background and confirm http://127.0.0.1:8787/report loads.
 7. Tell me to restart Codex, and show me the command to start the bridge again next time.
 ```
@@ -44,9 +45,12 @@ Then **restart Codex** and pick `deepseek-pro` or `deepseek-flash`.
 
 No Node required. Download the binary for your computer:
 
-- macOS (Apple Silicon): [codex-deepseek-bridge-macos-arm64](#)
-- macOS (Intel): [codex-deepseek-bridge-macos-x64](#)
-- Windows: [codex-deepseek-bridge-win-x64.exe](#)
+- macOS (Apple Silicon):
+  [codex-deepseek-bridge-macos-arm64](https://github.com/JetXu-LLM/codex-deepseek-bridge/releases/latest/download/codex-deepseek-bridge-macos-arm64)
+- macOS (Intel):
+  [codex-deepseek-bridge-macos-x64](https://github.com/JetXu-LLM/codex-deepseek-bridge/releases/latest/download/codex-deepseek-bridge-macos-x64)
+- Windows:
+  [codex-deepseek-bridge-win-x64.exe](https://github.com/JetXu-LLM/codex-deepseek-bridge/releases/latest/download/codex-deepseek-bridge-win-x64.exe)
 
 **macOS** (Terminal, in your Downloads folder):
 
@@ -63,8 +67,8 @@ anyway"):
 .\codex-deepseek-bridge-win-x64.exe setup
 ```
 
-`setup` asks you to paste your DeepSeek key into the terminal, configures Codex, and starts the
-bridge. The key is not echoed. Then **restart Codex**.
+`setup` asks you to paste your DeepSeek key into the terminal when no key is already stored,
+configures Codex, and starts the bridge. The key is not echoed. Then **restart Codex**.
 
 <details>
 <summary>Have Node installed? Use npm instead.</summary>
@@ -80,12 +84,18 @@ Before the npm package is published, install from GitHub:
 
 ## Signing in
 
-- **Not signed in to Codex?** Setup signs you in with your DeepSeek key. Open Codex and start coding.
-- **Signed in with ChatGPT?** Your login is left alone. To switch this machine to DeepSeek, log out in
-  Codex, choose **Sign in another way**, and enter your DeepSeek API key.
+`setup` stores your DeepSeek key for the local bridge and leaves your Codex login alone.
 
-A DeepSeek key is not a ChatGPT account. While the bridge is active, Codex runs on DeepSeek; your GPT
-models come back when you [go back](#go-back-anytime).
+- **Signed in with ChatGPT?** Keep it. Your Codex history stays available while the model picker uses
+  the local DeepSeek catalog.
+- **Already in API-key login mode?** Codex can run DeepSeek, but ChatGPT-backed history is not
+  available in that mode. Run `codex-deepseek-bridge restore --logout`, sign in to Codex with
+  ChatGPT, then run `setup` again.
+- **Re-running after `restore`?** If you did not use `restore --logout`, the stored DeepSeek key is
+  reused and setup does not ask for it again.
+
+While the bridge is active, Codex runs on DeepSeek; your GPT models come back when you
+[go back](#go-back-anytime).
 
 ## Keep the bridge running
 
@@ -121,7 +131,7 @@ It is read-only and local. Prompt text is not stored.
 ## What you get today
 
 - DeepSeek in the Codex app on macOS and Windows.
-- Two clean models with three reasoning levels.
+- Two clean models with three reasoning levels. `deepseek-pro` is the default.
 - A local usage and cache report.
 - One-command upgrades.
 - Full reversibility.
@@ -147,7 +157,7 @@ Star and watch the repo to follow along.
 
 ```bash
 codex-deepseek-bridge restore           # restore your previous Codex config
-codex-deepseek-bridge restore --logout  # also remove the DeepSeek key login the setup created
+codex-deepseek-bridge restore --logout  # also remove an API-key login from older bridge setups
 ```
 
 Then restart Codex.

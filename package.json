@@ -1,6 +1,6 @@
 {
   "name": "codex-deepseek-bridge",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A tiny Responses-compatible local bridge that lets OpenAI Codex use DeepSeek LLM APIs.",
   "type": "module",
   "license": "MIT",
@@ -47,6 +47,7 @@
     "test": "node --test",
     "serve": "node ./bin/codex-deepseek-bridge.mjs serve",
     "doctor": "node ./bin/codex-deepseek-bridge.mjs doctor",
+    "verify:codex-app": "node scripts/verify-codex-app-server.mjs",
     "bundle": "esbuild bin/codex-deepseek-bridge.mjs --bundle --platform=node --format=cjs --outfile=dist/bundle.cjs",
     "build:binary": "node scripts/build-binary.mjs"
   },

@@ -57,6 +57,7 @@ async function main() {
     format: "cjs",
     target: "node18",
     banner: { js: `globalThis.__DSCB_VERSION__=${JSON.stringify(version)};` },
+    logOverride: { "empty-import-meta": "silent" },
     outfile: bundlePath,
   });
 
@@ -106,4 +107,3 @@ main().catch((error) => {
   process.stderr.write(`${error instanceof Error ? error.stack || error.message : String(error)}\n`);
   process.exitCode = 1;
 });
-

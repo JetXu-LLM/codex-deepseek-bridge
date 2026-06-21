@@ -82,3 +82,31 @@ test("setup with no key gives guidance and makes no changes", () => {
   assert.match(result.stdout, /No DeepSeek API key was provided\./);
   assert.equal(fs.existsSync(path.join(codexHome, "config.toml")), false);
 });
+
+test("setup reuses an existing stored key after a normal restore", () => {
+  const root = tempRoot();
+  const codexHome = path.join(root, "codex");
+  const bridgeHome = path.join(root, "bridge");
+  fs.mkdirSync(bridgeHome, { recursive: true });
+  fs.writeFileSync(path.join(bridgeHome, "deepseek-key"), "deepseek-existing-key\n", { mode: 0o600 });
+
+  const result = spawnSync(process.execPath, [bin, "setup", "--from-stdin", "--no-start"], {
+    encoding: "utf8",
+    input: "",
+    env: {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      DSCB_HOME: bridgeHome,
+      DSCB_UPDATE_CHECK: "off",
+      DEEPSEEK_API_KEY: "",
+      PATH: "",
+    },
+  });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /Using the DeepSeek key already stored on this machine\./);
+  assert.doesNotMatch(result.stdout, /deepseek-existing-key/);
+  assert.doesNotMatch(result.stderr || "", /deepseek-existing-key/);
+  assert.match(fs.readFileSync(path.join(codexHome, "config.toml"), "utf8"), /^model = "deepseek-pro"$/m);
+  assert.equal(fs.readFileSync(path.join(bridgeHome, "deepseek-key"), "utf8").trim(), "deepseek-existing-key");
+});

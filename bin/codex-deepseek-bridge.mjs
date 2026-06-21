@@ -180,8 +180,7 @@ function setupSuccessMessage(loginMode, port, started) {
     : "Start the bridge with: codex-deepseek-bridge start";
   if (loginMode === "chatgpt") {
     return [
-      "Configured Codex for DeepSeek. Your ChatGPT login was left unchanged.",
-      'To use DeepSeek: open Codex, log out, choose "Sign in another way", and enter your DeepSeek API key.',
+      "Configured Codex for DeepSeek. Your ChatGPT login was left unchanged, so your Codex history stays available.",
       runningLine,
       "Start the bridge again later with: codex-deepseek-bridge start",
     ].join("\n");
@@ -189,21 +188,22 @@ function setupSuccessMessage(loginMode, port, started) {
   if (loginMode === "uncertain") {
     return [
       "Configured Codex for DeepSeek. I could not confirm your Codex login state, so I left it unchanged.",
-      "If Codex is not signed in, run: codex-deepseek-bridge setup --from-stdin   (it will sign you in with your DeepSeek key)",
-      'Or in Codex, choose "Sign in another way" and enter your DeepSeek API key.',
+      runningLine,
+      "Next: restart Codex, then pick deepseek-pro or deepseek-flash.",
     ].join("\n");
   }
   if (loginMode === "api-key") {
     return [
       "Configured Codex for DeepSeek. Your existing API-key login was left unchanged.",
+      "Note: API-key login cannot show ChatGPT-backed history. To recover that history, run codex-deepseek-bridge restore --logout and sign in to Codex with ChatGPT.",
       runningLine,
       "Next: restart Codex, then pick deepseek-pro or deepseek-flash.",
       "Start the bridge again later with: codex-deepseek-bridge start",
     ].join("\n");
   }
-  // loginMode === "none" => auto signed-in
+  // loginMode === "none"
   return [
-    "Configured Codex for DeepSeek. Signed in with your DeepSeek key.",
+    "Configured Codex for DeepSeek. No Codex login was changed; the bridge will use your stored DeepSeek key.",
     runningLine,
     "Next: restart Codex, then pick deepseek-pro or deepseek-flash.",
     "Start the bridge again later with: codex-deepseek-bridge start",
@@ -218,15 +218,19 @@ async function cmdSetup(args, env, config) {
   }
 
   const key = await resolveKey(args, env);
+  const bridgeHome = defaultBridgeHome(env);
+  const hasStoredKey = inspectCodexInstall({ env, bridgeHome }).keyStored;
   if (!key) {
-    out("No DeepSeek API key was provided.");
-    out("Re-run setup in a terminal: codex-deepseek-bridge setup");
-    out("It will ask you to paste your key without echoing it.");
-    out("Your key is stored locally and never printed or committed.");
-    return 0;
+    if (!hasStoredKey) {
+      out("No DeepSeek API key was provided.");
+      out("Re-run setup in a terminal: codex-deepseek-bridge setup");
+      out("It will ask you to paste your key without echoing it.");
+      out("Your key is stored locally and never printed or committed.");
+      return 0;
+    }
+    out("Using the DeepSeek key already stored on this machine.");
   }
 
-  const bridgeHome = defaultBridgeHome(env);
   const preferredPort = Number(args.port || 8787);
   const port = await findAvailablePort(preferredPort, config.host);
   if (port !== preferredPort) {
@@ -372,7 +376,7 @@ function cmdRestore(args, env) {
   if (args.logout === true) {
     codexLogout();
     removeStoredKey(bridgeHome);
-    out("Restored your previous Codex config and removed the DeepSeek key login. Restart Codex.");
+    out("Restored your previous Codex config and removed the API-key login plus stored DeepSeek key. Restart Codex.");
     return 0;
   }
   if (!result.changed) {

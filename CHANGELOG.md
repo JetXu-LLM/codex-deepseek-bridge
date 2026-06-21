@@ -5,6 +5,27 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.5
+
+Fixes the Codex desktop picker and preserves ChatGPT-backed history.
+
+### Fixed
+
+- `models.json` now includes the desktop app-facing model fields (`model`, `displayName`,
+  `defaultReasoningEffort`, and `supportedReasoningEfforts`) alongside the Codex CLI catalog fields.
+  This fixes the picker showing `Custom` with an empty model submenu even though `codex debug models`
+  accepted the catalog.
+- `deepseek-pro` is now the stable desktop default after Codex app-server model sorting.
+- The managed provider no longer requires Codex/OpenAI auth. The bridge uses the locally stored
+  DeepSeek key, so ChatGPT sign-in can stay in place and Codex history can remain available.
+
+### Changed
+
+- Setup and docs now say to preserve the Codex login. API-key login mode is documented as a legacy
+  state that cannot show ChatGPT-backed history.
+- `setup` can reuse an existing stored DeepSeek key after a normal `restore`; `restore --logout`
+  still removes the stored key for a full cleanup.
+
 ## 0.1.4
 
 Fixes the macOS x64 release runner.

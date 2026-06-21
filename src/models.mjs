@@ -11,14 +11,22 @@ export const MODEL_PRESETS = [
     slug: "deepseek-pro",
     displayName: "DeepSeek Pro",
     description: "DeepSeek Pro via the local Codex DeepSeek Bridge.",
-    priority: 10,
+    // Codex app-server sorts custom catalog entries by ascending priority and
+    // marks the first returned entry as the desktop default.
+    priority: 1,
   },
   {
     slug: "deepseek-flash",
     displayName: "DeepSeek Flash",
     description: "DeepSeek Flash via the local Codex DeepSeek Bridge.",
-    priority: 9,
+    priority: 2,
   },
+];
+
+const REASONING_EFFORTS = [
+  { effort: "none", reasoningEffort: "none", description: "No thinking (fastest)" },
+  { effort: "high", reasoningEffort: "high", description: "DeepSeek thinking" },
+  { effort: "xhigh", reasoningEffort: "xhigh", description: "DeepSeek maximum thinking" },
 ];
 
 export function resolveUpstreamModels(env = process.env) {
@@ -59,18 +67,21 @@ export function catalogModels({ vision = false } = {}) {
 function reasoningMetadata() {
   return {
     default_reasoning_level: "high",
-    supported_reasoning_levels: [
-      { effort: "none", description: "No thinking (fastest)" },
-      { effort: "high", description: "DeepSeek thinking" },
-      { effort: "xhigh", description: "DeepSeek maximum thinking" },
-    ],
+    supported_reasoning_levels: REASONING_EFFORTS.map(({ effort, description }) => ({ effort, description })),
     default_reasoning_summary: "auto",
     supports_reasoning_summaries: true,
+    defaultReasoningEffort: "high",
+    supportedReasoningEfforts: REASONING_EFFORTS.map(({ reasoningEffort, description }) => ({
+      reasoningEffort,
+      description,
+    })),
   };
 }
 
 export function modelCatalogEntry(model, { vision = false } = {}) {
+  const inputModalities = vision ? ["text", "image"] : ["text"];
   return {
+    model: model.slug,
     slug: model.slug,
     id: model.slug,
     display_name: model.displayName,
@@ -95,12 +106,18 @@ export function modelCatalogEntry(model, { vision = false } = {}) {
       mode: "tokens",
       limit: 20000,
     },
-    input_modalities: vision ? ["text", "image"] : ["text"],
+    input_modalities: inputModalities,
+    inputModalities,
     experimental_supported_tools: [],
     additional_speed_tiers: [],
+    additionalSpeedTiers: [],
     service_tiers: [],
+    serviceTiers: [],
+    defaultServiceTier: null,
     availability_nux: null,
+    availabilityNux: null,
     upgrade: null,
+    upgradeInfo: null,
     model_messages: {
       instructions_template:
         "{{ personality }}\n\nYou are Codex, a coding agent working in the user's local workspace. Help with software tasks end to end: inspect the project before changing it, use tools when useful, keep edits scoped, avoid reverting user changes, verify your work, and report the result clearly.",
@@ -112,6 +129,8 @@ export function modelCatalogEntry(model, { vision = false } = {}) {
     },
     visibility: "list",
     hidden: false,
+    isDefault: model.slug === DEFAULT_CODEX_MODEL,
+    supportsPersonality: false,
     supported_in_api: true,
     priority: model.priority,
   };

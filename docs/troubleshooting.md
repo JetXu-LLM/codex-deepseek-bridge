@@ -14,11 +14,22 @@ Almost always one of two things:
 
 1. **Codex was not restarted.** The model catalog is applied at startup. Quit Codex fully and reopen
    it.
-2. **You are signed in with ChatGPT.** A ChatGPT account uses the remote model catalog, so the local
-   DeepSeek catalog cannot be merged in. In Codex, log out, choose **Sign in another way**, and enter
-   your DeepSeek API key. (`setup` does not change a ChatGPT login for you.)
+2. **The bridge config is not active.** Run `codex-deepseek-bridge doctor`. It should say
+   `Codex config: DeepSeek active`. If it does not, re-run `setup`.
+
+## The picker says Custom or the model submenu is empty
+
+Upgrade to `0.1.5` or newer and re-run `setup`. Older builds wrote a catalog that the Codex CLI could
+parse, but the desktop picker could not match because it also needs the app-facing fields
+`model`, `defaultReasoningEffort`, and `supportedReasoningEfforts`.
 
 If you want to undo everything, run `codex-deepseek-bridge restore` and restart Codex.
+
+On macOS, maintainers can verify the exact desktop app-server response with:
+
+```bash
+npm run verify:codex-app
+```
 
 ## DeepSeek calls fail
 
@@ -44,6 +55,29 @@ codex debug models
 
 If it mentions `supported_reasoning_levels`, upgrade to `0.1.2` or newer and re-run `setup`. Older
 bridge builds wrote the previous Codex catalog field names, so Codex ignored the DeepSeek picker.
+
+## Codex history is missing
+
+Run:
+
+```bash
+codex-deepseek-bridge doctor
+```
+
+If it says `Codex login: api-key`, Codex cannot show ChatGPT-backed history in that login mode. This
+can happen after older bridge setups that signed Codex in with a DeepSeek key, or if this machine was
+already using Codex in API-key mode. DeepSeek models still work in this mode, but ChatGPT cloud
+history needs a ChatGPT sign-in. To recover that history:
+
+```bash
+codex-deepseek-bridge restore --logout
+```
+
+Then sign in to Codex with ChatGPT and run `codex-deepseek-bridge setup` again. Current bridge
+versions keep your Codex login unchanged and use the local stored DeepSeek key for model calls.
+
+If you only ran `restore` and did not use `restore --logout`, the stored DeepSeek key remains on this
+machine. Running `setup` again can reuse it without asking you to paste the key again.
 
 ## The bridge stopped after a reboot (Windows)
 
@@ -91,7 +125,7 @@ likely cause. The bridge does not rewrite prompts; it reports so you can diagnos
 
 ```bash
 codex-deepseek-bridge restore           # restore your previous Codex config
-codex-deepseek-bridge restore --logout  # also remove the DeepSeek key login the setup created
+codex-deepseek-bridge restore --logout  # also remove an API-key login from older bridge setups
 ```
 
 Then restart Codex.

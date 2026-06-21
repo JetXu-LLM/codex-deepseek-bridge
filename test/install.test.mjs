@@ -47,7 +47,7 @@ test("configureCodex writes one managed block and the two-model catalog", () => 
   assert.match(config, /^model_provider = "deepseek_bridge"$/m);
   assert.match(config, /^model_reasoning_effort = "high"$/m);
   assert.match(config, /\[model_providers\.deepseek_bridge\]/);
-  assert.match(config, /^requires_openai_auth = true$/m);
+  assert.match(config, /^requires_openai_auth = false$/m);
   // No legacy named-profile file is created.
   assert.equal(fs.existsSync(path.join(codexHome, "deepseek.config.toml")), false);
 
@@ -62,7 +62,7 @@ test("configureCodex writes one managed block and the two-model catalog", () => 
   assert.equal(state.loginMode, "none");
 });
 
-test("stores the DeepSeek key owner-only, auto signs in, never logs out", () => {
+test("stores the DeepSeek key owner-only and never changes Codex login", () => {
   const root = tempRoot();
   const codexHome = path.join(root, "codex");
   const bridgeHome = path.join(root, "bridge");
@@ -77,9 +77,7 @@ test("stores the DeepSeek key owner-only, auto signs in, never logs out", () => 
     assert.equal(fs.statSync(keyFile).mode & 0o777, 0o600);
   }
   assert.equal(calls.some((call) => call.args[0] === "logout"), false);
-  const login = calls.find((call) => call.args[1] === "--with-api-key");
-  assert.ok(login, "expected auto login with the DeepSeek key");
-  assert.equal(login.input, "deepseek-secret\n");
+  assert.equal(calls.some((call) => call.args[0] === "login" && call.args[1] === "--with-api-key"), false);
 });
 
 test("backs up an existing config and restore returns the original", () => {

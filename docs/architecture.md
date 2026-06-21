@@ -52,7 +52,7 @@ model_reasoning_effort = "high"
 name = "DeepSeek (via Codex DeepSeek Bridge)"
 base_url = "http://127.0.0.1:8787/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 # <<< codex-deepseek-bridge
 ```
 
@@ -71,6 +71,11 @@ The picker shows exactly two slugs. Each maps to a configurable upstream model:
 The Codex-facing slugs never change; only the upstream mapping does when DeepSeek ships a new
 generation. Unknown or dated slugs fold to the nearest known slug so old sessions keep working.
 
+`models.json` carries both Codex CLI catalog fields (`slug`, `display_name`,
+`default_reasoning_level`, `supported_reasoning_levels`) and Codex desktop app-server fields
+(`model`, `displayName`, `defaultReasoningEffort`, `supportedReasoningEfforts`). `deepseek-pro` has
+the first catalog priority so the desktop app keeps it as the default after app-server sorting.
+
 Each model exposes three reasoning efforts:
 
 | Codex effort | DeepSeek request |
@@ -88,7 +93,7 @@ At request time the bridge resolves the DeepSeek key in this order:
 
 1. `DEEPSEEK_API_KEY` in the bridge process.
 2. The stored key file `<bridgeHome>/deepseek-key`.
-3. The bearer Codex forwards (because `requires_openai_auth = true`).
+3. A forwarded bearer, for older configs that still set `requires_openai_auth = true`.
 
 If `DSCB_BRIDGE_API_KEY` is set (advanced, for exposing the bridge beyond localhost), the incoming
 bearer gates the bridge and the upstream key must come from steps 1–2.

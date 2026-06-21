@@ -257,23 +257,14 @@ export function codexVersion({ runCodex = defaultRunCodex } = {}) {
   return match ? match[0] : text || null;
 }
 
-// Adapt login per detected class. Never calls `codex logout`.
+// Detect login state without replacing it. The bridge uses its stored DeepSeek
+// key directly, so Codex auth can remain ChatGPT, API-key, none, or uncertain.
 export function adaptCodexLogin({
   env = process.env,
   codexHome = defaultCodexHome(env),
-  bridgeHome = defaultBridgeHome(env),
-  apiKey = "",
   runCodex = defaultRunCodex,
 } = {}) {
   const loginMode = detectLoginMode({ env, codexHome, runCodex });
-  if (loginMode === "none") {
-    const key = String(apiKey || "").trim() || readStoredKey(bridgeHome);
-    if (key) {
-      runCodex(["login", "--with-api-key"], { input: `${key}\n` });
-      return { loginMode, action: "signed-in" };
-    }
-    return { loginMode, action: "needs-key" };
-  }
   return { loginMode, action: "unchanged" };
 }
 
@@ -330,7 +321,7 @@ export function configureCodex({
     keyStored = true;
   }
 
-  // Login detect-and-adapt (auto sign-in only for the unsigned + key case).
+  // Detect login state for reporting only. Setup must not replace Codex auth.
   let login;
   if (adaptLogin) {
     login = adaptCodexLogin({ env, codexHome, bridgeHome, apiKey, runCodex });
