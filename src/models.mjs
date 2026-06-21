@@ -60,8 +60,10 @@ export function resolveModelRequest(requestedModel, config = {}) {
   };
 }
 
-export function catalogModels({ vision = false } = {}) {
-  return MODEL_PRESETS.map((model) => modelCatalogEntry(model, { vision }));
+export function catalogModels({ vision = false, includeFlash = true } = {}) {
+  return MODEL_PRESETS
+    .filter((model) => includeFlash || model.slug !== "deepseek-flash")
+    .map((model) => modelCatalogEntry(model, { vision }));
 }
 
 function reasoningMetadata() {

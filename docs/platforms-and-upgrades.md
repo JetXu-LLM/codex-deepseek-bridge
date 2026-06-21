@@ -56,15 +56,19 @@ codex-deepseek-bridge start
 
 `start` is idempotent: if the bridge is already running it reports the port and exits.
 
-## macOS Desktop picker patch
+## Desktop picker patch
 
-Current macOS Codex Desktop builds may hide custom catalog models behind a remote allowlist even
-after the app-server returns the DeepSeek catalog. When this is detected, interactive `setup` asks
-before applying a small reversible patch to the local Codex Desktop bundle. Automation can apply it
+Current Codex Desktop builds may hide custom catalog models behind a remote allowlist even after the
+app-server returns the DeepSeek catalog. This is tracked upstream in
+[openai/codex#19694](https://github.com/openai/codex/issues/19694). Without the Desktop patch,
+setup publishes `deepseek-pro` only. With the patch active, setup publishes `deepseek-pro` and
+`deepseek-flash`.
+
+Interactive `setup` asks before applying the reversible local picker patch. Automation can apply it
 explicitly with `setup --desktop-patch`. The patch makes the picker use the local catalog's
 `hidden` flag instead of that allowlist gate.
 
-The patch touches:
+On macOS, the patch touches:
 
 - `/Applications/Codex.app/Contents/Resources/app.asar`
 - `/Applications/Codex.app/Contents/Info.plist`
@@ -74,8 +78,19 @@ The patch touches:
 The bridge backs up those files under `<bridgeHome>/desktop-patch/`, updates Electron's ASAR
 integrity hash, and re-signs the app with an ad-hoc local signature. `restore` puts the backups
 back, verifies the app bundle, and re-signs locally again only if the restored signature no longer
-verifies. If Codex Desktop later removes this allowlist behavior, `setup` detects that the patch
-target is absent and leaves the app bundle unchanged.
+verifies.
+
+On Windows writable Electron installs, the patch touches:
+
+- `<Codex install>/resources/app.asar`
+
+On Windows Store installs, Windows may block writes under `WindowsApps`. In that case the bridge
+mirrors the app into `<bridgeHome>/desktop-patch/windows-store-apps/`, patches that managed copy,
+and prints a `Codex-DeepSeek.cmd` launcher path. Use that launcher to open the patched copy. The
+normal Windows Store shortcut still opens the unpatched Store app.
+
+If Codex Desktop later removes this allowlist behavior, `setup` detects that the patch target is
+absent and leaves the app bundle unchanged.
 
 Apply it explicitly with:
 
@@ -94,11 +109,13 @@ DSCB_DESKTOP_PATCH=off codex-deepseek-bridge setup
 `CODEX_HOME` defaults to `~/.codex` (`%USERPROFILE%\.codex` on Windows). The bridge writes:
 
 - `config.toml` — one managed block, written after backing up any existing file.
-- `<bridgeHome>/models.json` — the two-model catalog.
+- `<bridgeHome>/models.json` — the active catalog. Config-only setup publishes `deepseek-pro`;
+  patched Desktop setup also publishes `deepseek-flash`.
 - `<bridgeHome>/deepseek-key` — the stored key (owner-only).
 - `<bridgeHome>/install-state.json` — what was changed, the backup path, the resolved port, the
   detected login mode, the install method, and the bridge version.
-- `<bridgeHome>/desktop-patch/` — macOS Codex Desktop picker backups when that patch is needed.
+- `<bridgeHome>/desktop-patch/` — Codex Desktop picker backups, Windows Store managed copies, and
+  launchers when that patch is needed.
 - `<bridgeHome>/bridge.pid`, `bridge.stdout.log`, `bridge.stderr.log` — daemon bookkeeping.
 
 `<bridgeHome>` defaults to `<CODEX_HOME>/codex-deepseek-bridge`.

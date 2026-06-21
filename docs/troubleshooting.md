@@ -19,10 +19,13 @@ Almost always one of two things:
 
 ## The picker says Custom or the model submenu is empty
 
-Upgrade to `0.1.7` or newer and re-run `setup`. Current macOS Codex Desktop builds can apply a
-remote allowlist to hidden models before rendering the picker. The app-server can already return the
-DeepSeek catalog correctly, but the renderer may still filter out `deepseek-pro` and
-`deepseek-flash`, leaving the UI at `Custom`.
+Upgrade to `0.1.10` or newer and re-run `setup`. Current Codex Desktop builds can apply a remote
+allowlist to hidden models before rendering the picker. The app-server can already return the
+DeepSeek catalog correctly, but the renderer may still filter out custom models, leaving the UI at
+`Custom`. This is tracked upstream in [openai/codex#19694](https://github.com/openai/codex/issues/19694).
+
+Without the Desktop patch, setup intentionally publishes `deepseek-pro` only. `deepseek-flash` is
+published only when the Desktop picker patch is active.
 
 `setup` detects that Desktop bundle and asks before applying a reversible local picker patch. Run:
 
@@ -35,6 +38,9 @@ codex-deepseek-bridge doctor
 `codex-deepseek-bridge setup --desktop-patch` to apply the patch explicitly. If it says
 `unrecognized Desktop build`, your Codex Desktop version changed enough that the bridge refused to
 patch it. Open an issue with the Codex version and the `doctor` output.
+
+On Windows Store installs, setup may print a managed launcher path. Use that launcher to open the
+patched copy; the normal Windows Store shortcut still opens the unpatched app.
 
 If you want to undo everything, run `codex-deepseek-bridge restore` and restart Codex.
 
@@ -133,8 +139,8 @@ published `.sha256` if you want extra assurance.
 
 ## Choosing model and reasoning
 
-The picker shows `deepseek-pro` (stronger) and `deepseek-flash` (faster, cheaper). Each has three
-reasoning levels:
+Config-only setup uses `deepseek-pro`. With the Desktop picker patch active, the picker also shows
+`deepseek-flash` (faster, cheaper). Each model has three reasoning levels:
 
 - **none** — no thinking, fastest.
 - **high** — DeepSeek thinking (default).

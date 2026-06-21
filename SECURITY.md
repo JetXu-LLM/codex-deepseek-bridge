@@ -35,17 +35,24 @@ come from the environment or the stored file.
 restoring that exact backup; otherwise it strips only the managed block. It always takes a
 pre-restore backup first, so no config write is destructive without a recoverable copy.
 
-On macOS, `setup` may also offer to patch Codex Desktop's local picker bundle when the app hides
-custom catalog models behind its remote allowlist. This requires interactive confirmation,
-`setup --desktop-patch`, or `DSCB_DESKTOP_PATCH=on`; non-interactive default setup does not silently
-modify the app bundle. The bridge backs up `app.asar`, `Info.plist`, and the code-signature
-directory before patching. On macOS, signing may also rewrite the root executable's embedded
-signature, so the bridge backs up that file too. It then updates Electron's ASAR integrity metadata
-and re-signs the app locally. `restore` puts those backups back, verifies the bundle, and performs a
-local re-sign only if the restored bundle does not verify.
+`setup` may also offer to patch Codex Desktop's local picker bundle when the app hides custom catalog
+models behind its remote allowlist. This requires interactive confirmation, `setup --desktop-patch`,
+or `DSCB_DESKTOP_PATCH=on`; non-interactive default setup does not silently modify the app bundle.
 
-This project does not distribute a modified Codex app. You should review your local legal and
-contract obligations before choosing the optional Desktop patch.
+On macOS, the bridge backs up `app.asar`, `Info.plist`, and the code-signature directory before
+patching. Signing may also rewrite the root executable's embedded signature, so the bridge backs up
+that file too. It then updates Electron's ASAR integrity metadata and re-signs the app locally.
+`restore` puts those backups back, verifies the bundle, and performs a local re-sign only if the
+restored bundle does not verify.
+
+On Windows writable installs, the bridge backs up and patches `resources/app.asar`. On Windows Store
+installs, it may create a managed writable copy under `<bridgeHome>/desktop-patch/windows-store-apps/`
+and a launcher under `<bridgeHome>/desktop-patch/launchers/`; `restore` removes that managed copy and
+launcher.
+
+This project does not distribute a modified Codex app. The optional Desktop patch is a local
+compatibility workaround for a Codex Desktop picker issue and is provided without warranty. Review
+your local legal, workplace, and contract obligations before choosing it.
 
 ## Network and report
 

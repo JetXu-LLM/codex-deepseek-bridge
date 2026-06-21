@@ -75,6 +75,20 @@ function writeFakeBundle(root, source) {
   return { app, appAsar, infoPlist, rootExecutable };
 }
 
+function writeFakeWindowsBundleAt(app, source) {
+  const resources = path.join(app, "resources");
+  fs.mkdirSync(resources, { recursive: true });
+  const appAsar = path.join(resources, "app.asar");
+  const executable = path.join(app, "Codex.exe");
+  writeFakeAsar(appAsar, source);
+  fs.writeFileSync(executable, "exe-original");
+  return { app, appAsar, executable };
+}
+
+function writeFakeWindowsBundle(root, source) {
+  return writeFakeWindowsBundleAt(path.join(root, "Codex"), source);
+}
+
 function readFakeAsar(file) {
   const bytes = fs.readFileSync(file);
   const headerLength = bytes.readUInt32LE(12);
@@ -225,4 +239,56 @@ test("restoreCodexDesktopPatch repairs a stale inactive state with failed signat
   assert.equal(signCommands.length, 1);
   assert.equal(state.restoreCodesignVerified, true);
   assert.ok(state.signatureRepairedAt);
+});
+
+test("patchCodexDesktop patches and restores a writable Windows Electron bundle", () => {
+  const root = tempRoot();
+  const bridgeHome = path.join(root, "bridge");
+  const bundle = writeFakeWindowsBundle(
+    root,
+    "function e({authMethod:e,availableModels:t,defaultModel:n,models:r,useHiddenModels:i}){let a=[],o=null,s=i&&e!==`amazonBedrock`;return r.forEach(n=>{if(s?t.has(n.model):!n.hidden){a.push(n)}})}",
+  );
+
+  const patch = patchCodexDesktop({ appBundlePath: bundle.app, bridgeHome, platform: "win32" });
+  const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
+  const afterPatch = readFakeAsar(bundle.appAsar);
+
+  assert.equal(patch.status, "patched");
+  assert.equal(patch.platform, "win32");
+  assert.equal(patch.managedCopy, false);
+  assert.match(afterPatch.content.toString("utf8"), /,s=0&&e!==`amazonBedrock`;/);
+  assert.equal(state.platform, "win32");
+  assert.equal(state.active, true);
+
+  const restore = restoreCodexDesktopPatch({ bridgeHome, platform: "win32" });
+  const afterRestore = readFakeAsar(bundle.appAsar);
+
+  assert.equal(restore.status, "restored");
+  assert.equal(afterRestore.content.toString("utf8").includes(",s=0&&"), false);
+});
+
+test("patchCodexDesktop mirrors Windows Store installs into a managed writable copy", () => {
+  const root = tempRoot();
+  const bridgeHome = path.join(root, "bridge");
+  const storeApp = path.join(root, "Program Files", "WindowsApps", "OpenAI.Codex_1.0.0_x64__abc", "app");
+  const source = writeFakeWindowsBundleAt(
+    storeApp,
+    "function e({authMethod:e,availableModels:t,defaultModel:n,models:r,useHiddenModels:i}){let a=[],o=null,s=i&&e!==`amazonBedrock`;return r.forEach(n=>{if(s?t.has(n.model):!n.hidden){a.push(n)}})}",
+  );
+
+  const patch = patchCodexDesktop({ appBundlePath: source.app, bridgeHome, platform: "win32" });
+  const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
+
+  assert.equal(patch.status, "patched");
+  assert.equal(patch.managedCopy, true);
+  assert.ok(patch.appBundlePath.includes(path.join("desktop-patch", "windows-store-apps")));
+  assert.equal(fs.existsSync(patch.launcherPath), true);
+  assert.equal(readFakeAsar(source.appAsar).content.toString("utf8").includes(",s=0&&"), false);
+  assert.equal(readFakeAsar(patch.appAsarPath).content.toString("utf8").includes(",s=0&&"), true);
+  assert.equal(state.sourceAppBundlePath, source.app);
+
+  const restore = restoreCodexDesktopPatch({ bridgeHome, platform: "win32" });
+  assert.equal(restore.status, "restored");
+  assert.equal(fs.existsSync(patch.appBundlePath), false);
+  assert.equal(fs.existsSync(patch.launcherPath), false);
 });

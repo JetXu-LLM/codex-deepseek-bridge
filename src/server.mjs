@@ -442,6 +442,7 @@ export function modelList(config) {
     object: "list",
     data: catalogModels({
       vision: config.enableVision,
+      includeFlash: config.includeFlash !== false,
     }).map((model) => ({
       id: model.slug,
       object: "model",

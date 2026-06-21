@@ -1,5 +1,5 @@
-// The single source for the Path A prompt. `setup --print-prompt` prints exactly
-// this and the README "Already using Codex?" block is identical (doc 10 §4).
+// Legacy helper for users who still want Codex to run the setup for them.
+// The README now leads with direct commands instead.
 export const CODEX_SETUP_PROMPT = `Set up Codex DeepSeek Bridge on this machine so Codex runs on DeepSeek.
 Treat my DeepSeek API key as a secret: never print it, never write it into a file you show me, never
 put it in your replies, never commit it.
@@ -8,9 +8,10 @@ Steps:
 2. If I have Node, install with npm; otherwise download the binary for my OS from the latest release.
 3. Run setup. If no DeepSeek key is already stored on this machine, ask me to paste it in the
    terminal (stdin), not in this chat.
-4. Back up my Codex config, then point Codex at the DeepSeek bridge (models deepseek-pro, deepseek-flash).
+4. Back up my Codex config, then point Codex at the DeepSeek bridge (deepseek-pro by default).
    If Codex Desktop hides custom catalog models, explain the reversible local picker patch and apply
-   it only with my explicit approval, or by running setup with --desktop-patch.
+   it only with my explicit approval, or by running setup with --desktop-patch. Only enable
+   deepseek-flash when the Desktop picker patch is active.
 5. Do not replace my Codex login. Keep my ChatGPT login if I have one, and keep API-key mode if
    that is how I already use Codex. Existing local history should stay visible. The bridge should
    use the local stored DeepSeek key, not Codex's login token.

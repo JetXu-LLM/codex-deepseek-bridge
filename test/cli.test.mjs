@@ -17,7 +17,7 @@ test("setup --print-prompt prints the canonical prompt", () => {
   const result = spawnSync(process.execPath, [bin, "setup", "--print-prompt"], { encoding: "utf8" });
   assert.equal(result.status, 0);
   assert.match(result.stdout, /^Set up Codex DeepSeek Bridge on this machine so Codex runs on DeepSeek\./);
-  assert.match(result.stdout, /models deepseek-pro, deepseek-flash/);
+  assert.match(result.stdout, /deepseek-pro by default/);
   assert.match(result.stdout, /put it in your replies, never commit it\./);
 });
 
@@ -48,7 +48,7 @@ test("setup --from-stdin --no-start writes the managed block, catalog, and key",
   assert.match(config, /^model_provider = "deepseek_bridge"$/m);
 
   const catalog = JSON.parse(fs.readFileSync(path.join(bridgeHome, "models.json"), "utf8"));
-  assert.deepEqual(catalog.models.map((entry) => entry.slug), ["deepseek-pro", "deepseek-flash"]);
+  assert.deepEqual(catalog.models.map((entry) => entry.slug), ["deepseek-pro"]);
 
   const keyFile = path.join(bridgeHome, "deepseek-key");
   assert.equal(fs.readFileSync(keyFile, "utf8").trim(), "deepseek-cli-key");

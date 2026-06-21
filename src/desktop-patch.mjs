@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { defaultBridgeHome } from "./config.mjs";
@@ -9,9 +10,11 @@ const PATCH_SCHEMA_VERSION = 1;
 const PATCH_VERSION = 1;
 const DEFAULT_CODEX_APP = "/Applications/Codex.app";
 const ASAR_RELATIVE_PATH = path.join("Contents", "Resources", "app.asar");
+const WIN_ASAR_RELATIVE_PATH = path.join("resources", "app.asar");
 const INFO_PLIST_RELATIVE_PATH = path.join("Contents", "Info.plist");
 const CODE_SIGNATURE_RELATIVE_PATH = path.join("Contents", "_CodeSignature");
 const ROOT_EXECUTABLE_RELATIVE_PATH = path.join("Contents", "MacOS", "Codex");
+const WINDOWS_LAUNCHER_NAME = "Codex-DeepSeek.cmd";
 
 const EXACT_PATCHES = [
   {
@@ -87,21 +90,175 @@ function defaultRunCommand(command, args) {
   execFileSync(command, args, { stdio: "pipe" });
 }
 
-function resolveCodexApp({ env = process.env, appBundlePath = "" } = {}) {
+function defaultWindowsLocalAppData(env = process.env) {
+  return env.LOCALAPPDATA || path.join(env.USERPROFILE || os.homedir(), "AppData", "Local");
+}
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function windowsStoreCodexCandidates(packageRoot) {
+  return [path.join(packageRoot, "app"), packageRoot];
+}
+
+function latestWindowsSquirrelAppDir(root) {
+  try {
+    const entries = fs
+      .readdirSync(root)
+      .filter((entry) => /^app-/i.test(entry))
+      .map((entry) => path.join(root, entry))
+      .filter((entryPath) => fs.statSync(entryPath).isDirectory());
+    entries.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return entries.at(-1) || "";
+  } catch {
+    return "";
+  }
+}
+
+function isWindowsCodexRoot(appRoot) {
+  return Boolean(appRoot && fs.existsSync(path.join(appRoot, WIN_ASAR_RELATIVE_PATH)));
+}
+
+function windowsCodexCandidates(root) {
+  if (!root || !fs.existsSync(root)) {
+    return [];
+  }
+  const candidates = [];
+  try {
+    for (const entry of fs.readdirSync(root)) {
+      if (!/\bcodex\b/i.test(entry)) {
+        continue;
+      }
+      const dir = path.join(root, entry);
+      try {
+        if (!fs.statSync(dir).isDirectory()) {
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      candidates.push(dir);
+      candidates.push(...windowsStoreCodexCandidates(dir));
+      const latest = latestWindowsSquirrelAppDir(dir);
+      if (latest) {
+        candidates.push(latest);
+      }
+    }
+  } catch {
+    // Some protected folders, especially WindowsApps, refuse enumeration.
+  }
+  return candidates;
+}
+
+function findWindowsStoreCodexInstalls({ platform = process.platform } = {}) {
+  if (platform !== "win32") {
+    return [];
+  }
+  try {
+    const stdout = execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        [
+          "$pkgs = Get-AppxPackage | Where-Object {",
+          "$_.Name -match 'Codex' -or $_.PackageFullName -match 'Codex' -or $_.InstallLocation -match 'Codex'",
+          "} | Select-Object Name, InstallLocation;",
+          "if ($pkgs) { $pkgs | ConvertTo-Json -Compress }",
+        ].join(" "),
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    if (!stdout) {
+      return [];
+    }
+    const parsed = JSON.parse(stdout);
+    const rows = Array.isArray(parsed) ? parsed : [parsed];
+    return rows
+      .map((row) => ({
+        name: String(row?.Name || ""),
+        installLocation: row?.InstallLocation ? String(row.InstallLocation) : "",
+      }))
+      .filter((row) => row.name || row.installLocation);
+  } catch {
+    return [];
+  }
+}
+
+function resolveWindowsCodexApp({ env = process.env, appBundlePath = "", platform = process.platform } = {}) {
+  if (env.DSCB_CODEX_APP || appBundlePath) {
+    return path.resolve(env.DSCB_CODEX_APP || appBundlePath);
+  }
+
+  const local = defaultWindowsLocalAppData(env);
+  const programFiles = env.ProgramFiles || "C:\\Program Files";
+  const programFilesX86 = env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+  const candidates = [];
+
+  if (local) {
+    candidates.push(
+      path.join(local, "Programs", "Codex"),
+      path.join(local, "Programs", "Codex Beta"),
+      path.join(local, "Programs", "Codex (Beta)"),
+      path.join(local, "Codex"),
+      path.join(local, "codex"),
+      ...windowsCodexCandidates(local),
+      ...windowsCodexCandidates(path.join(local, "Programs")),
+    );
+  }
+  for (const root of [programFiles, programFilesX86]) {
+    candidates.push(
+      path.join(root, "Codex"),
+      path.join(root, "Codex Beta"),
+      path.join(root, "Codex (Beta)"),
+      ...windowsCodexCandidates(root),
+      ...windowsCodexCandidates(path.join(root, "WindowsApps")),
+    );
+  }
+  for (const storeInstall of findWindowsStoreCodexInstalls({ platform })) {
+    if (storeInstall.installLocation) {
+      candidates.push(...windowsStoreCodexCandidates(storeInstall.installLocation));
+    }
+  }
+
+  return unique(candidates).find(isWindowsCodexRoot) || "";
+}
+
+function resolveCodexApp({ env = process.env, appBundlePath = "", platform = process.platform } = {}) {
+  if (platform === "win32") {
+    return resolveWindowsCodexApp({ env, appBundlePath, platform });
+  }
   return path.resolve(env.DSCB_CODEX_APP || appBundlePath || DEFAULT_CODEX_APP);
 }
 
-function resolveAppAsar({ env = process.env, appAsarPath = "", appBundlePath = "" } = {}) {
+function resolveAppAsar({ env = process.env, appAsarPath = "", appBundlePath = "", platform = process.platform, state = null } = {}) {
   if (env.DSCB_CODEX_APP_ASAR || appAsarPath) {
     return path.resolve(env.DSCB_CODEX_APP_ASAR || appAsarPath);
   }
-  return path.join(resolveCodexApp({ env, appBundlePath }), ASAR_RELATIVE_PATH);
+  if (state?.active && state.appAsarPath && fs.existsSync(state.appAsarPath)) {
+    return path.resolve(state.appAsarPath);
+  }
+  if (platform === "win32") {
+    const appRoot = resolveCodexApp({ env, appBundlePath, platform });
+    return appRoot ? path.join(appRoot, WIN_ASAR_RELATIVE_PATH) : "";
+  }
+  return path.join(resolveCodexApp({ env, appBundlePath, platform }), ASAR_RELATIVE_PATH);
 }
 
 function appBundleFromAsar(appAsarPath) {
   const resolved = path.resolve(appAsarPath);
   const resourcesDir = path.dirname(resolved);
   const contentsDir = path.dirname(resourcesDir);
+  if (
+    path.basename(resolved).toLowerCase() === "app.asar" &&
+    path.basename(resourcesDir).toLowerCase() === "resources" &&
+    path.basename(contentsDir) !== "Contents"
+  ) {
+    return path.dirname(resourcesDir);
+  }
   if (path.basename(resolved) !== "app.asar" || path.basename(resourcesDir) !== "Resources") {
     return "";
   }
@@ -321,6 +478,79 @@ function backupPaths(bridgeHome, originalHash) {
   };
 }
 
+function normalizedWindowsPath(value) {
+  return `${String(value || "").replace(/\//g, "\\")}\\`;
+}
+
+function isWindowsAppsPath(value) {
+  return /\\WindowsApps\\/i.test(normalizedWindowsPath(value));
+}
+
+function mirrorDirectory(source, target) {
+  ensureDir(path.dirname(target));
+  if (process.platform === "win32") {
+    try {
+      const result = execFileSync("robocopy.exe", [source, target, "/MIR", "/NFL", "/NDL", "/NJH", "/NJS", "/NP"], {
+        stdio: "ignore",
+      });
+      if (typeof result?.status !== "number" || result.status <= 7) {
+        return;
+      }
+    } catch (error) {
+      if (typeof error?.status === "number" && error.status <= 7) {
+        return;
+      }
+    }
+  }
+  fs.rmSync(target, { recursive: true, force: true });
+  fs.cpSync(source, target, { recursive: true });
+}
+
+function findWindowsExecutable(appRoot) {
+  try {
+    const exe = fs.readdirSync(appRoot).find((name) => /\.exe$/i.test(name) && /\bcodex\b/i.test(name));
+    if (exe) {
+      return path.join(appRoot, exe);
+    }
+  } catch {
+    // Fall through to the conventional name.
+  }
+  return path.join(appRoot, "Codex.exe");
+}
+
+function createWindowsLauncher({ appRoot, bridgeHome }) {
+  const executable = findWindowsExecutable(appRoot);
+  const launcherDir = path.join(patchWorkDir(bridgeHome), "launchers");
+  ensureDir(launcherDir);
+  const launcherPath = path.join(launcherDir, WINDOWS_LAUNCHER_NAME);
+  fs.writeFileSync(launcherPath, `@echo off\r\nstart "" "${executable}" %*\r\n`, "utf8");
+  return launcherPath;
+}
+
+function ensureWindowsManagedCopy({ appBundlePath, bridgeHome }) {
+  if (!isWindowsAppsPath(appBundlePath)) {
+    return null;
+  }
+  const sourceRoot =
+    path.basename(appBundlePath).toLowerCase() === "app" ? appBundlePath : path.join(appBundlePath, "app");
+  const sourceAppRoot = isWindowsCodexRoot(sourceRoot) ? sourceRoot : appBundlePath;
+  if (!isWindowsCodexRoot(sourceAppRoot)) {
+    return null;
+  }
+
+  const packageRoot = path.dirname(sourceAppRoot);
+  const packageName = path.basename(packageRoot).replace(/[^A-Za-z0-9_.-]/g, "_") || "Codex";
+  const managedAppRoot = path.join(patchWorkDir(bridgeHome), "windows-store-apps", packageName, "app");
+  mirrorDirectory(sourceAppRoot, managedAppRoot);
+  return {
+    appBundlePath: managedAppRoot,
+    appAsarPath: path.join(managedAppRoot, WIN_ASAR_RELATIVE_PATH),
+    sourceAppBundlePath: sourceAppRoot,
+    managedCopy: true,
+    launcherPath: createWindowsLauncher({ appRoot: managedAppRoot, bridgeHome }),
+  };
+}
+
 function restoreBackups({ appAsarPath, infoPlistPath, codeSignaturePath, rootExecutablePath, state }) {
   if (state?.appAsarBackupPath && fs.existsSync(state.appAsarBackupPath)) {
     fs.copyFileSync(state.appAsarBackupPath, appAsarPath);
@@ -342,18 +572,19 @@ export function inspectCodexDesktopPatch({
   bridgeHome = defaultBridgeHome(env),
   appAsarPath = "",
   appBundlePath = "",
+  platform = process.platform,
 } = {}) {
   if (env.DSCB_DESKTOP_PATCH === "off") {
     return { status: "disabled" };
   }
-  const resolvedAsar = resolveAppAsar({ env, appAsarPath, appBundlePath });
-  const resolvedBundle = appBundleFromAsar(resolvedAsar) || resolveCodexApp({ env, appBundlePath });
   const state = readJson(patchStatePath(bridgeHome));
+  const resolvedAsar = resolveAppAsar({ env, appAsarPath, appBundlePath, platform, state });
+  const resolvedBundle = appBundleFromAsar(resolvedAsar) || resolveCodexApp({ env, appBundlePath, platform }) || state?.appBundlePath || "";
 
-  if (process.platform !== "darwin" && !appAsarPath && !env.DSCB_CODEX_APP_ASAR) {
+  if (platform !== "darwin" && platform !== "win32" && !appAsarPath && !env.DSCB_CODEX_APP_ASAR) {
     return { status: "unsupported", appAsarPath: resolvedAsar, appBundlePath: resolvedBundle, state };
   }
-  if (!fs.existsSync(resolvedAsar)) {
+  if (!resolvedAsar || !fs.existsSync(resolvedAsar)) {
     return { status: "missing", appAsarPath: resolvedAsar, appBundlePath: resolvedBundle, state };
   }
 
@@ -366,6 +597,8 @@ export function inspectCodexDesktopPatch({
       appBundlePath: resolvedBundle,
       filePath: target.filePath || "",
       managedBackup: Boolean(state?.active && state?.appAsarBackupPath && fs.existsSync(state.appAsarBackupPath)),
+      managedCopy: Boolean(state?.managedCopy),
+      launcherPath: state?.launcherPath || "",
       state,
     };
   } catch (error) {
@@ -402,20 +635,47 @@ export function patchCodexDesktop({
   appAsarPath = "",
   appBundlePath = "",
   runCommand = defaultRunCommand,
+  platform = process.platform,
 } = {}) {
   if (env.DSCB_DESKTOP_PATCH === "off") {
     return { status: "disabled" };
   }
-  const resolvedAsar = resolveAppAsar({ env, appAsarPath, appBundlePath });
-  const resolvedBundle = appBundleFromAsar(resolvedAsar) || resolveCodexApp({ env, appBundlePath });
+  const priorState = readJson(patchStatePath(bridgeHome));
+  let resolvedAsar = resolveAppAsar({ env, appAsarPath, appBundlePath, platform, state: priorState });
+  let resolvedBundle =
+    appBundleFromAsar(resolvedAsar) || resolveCodexApp({ env, appBundlePath, platform }) || priorState?.appBundlePath || "";
+  let sourceAppBundlePath = "";
+  let managedCopy = false;
+  let launcherPath = "";
+
+  if (platform === "win32" && resolvedBundle && isWindowsAppsPath(resolvedBundle)) {
+    try {
+      const managed = ensureWindowsManagedCopy({ appBundlePath: resolvedBundle, bridgeHome });
+      if (managed) {
+        sourceAppBundlePath = managed.sourceAppBundlePath;
+        resolvedBundle = managed.appBundlePath;
+        resolvedAsar = managed.appAsarPath;
+        managedCopy = true;
+        launcherPath = managed.launcherPath;
+      }
+    } catch (error) {
+      return {
+        status: "error",
+        appAsarPath: resolvedAsar,
+        appBundlePath: resolvedBundle,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   const infoPlistPath = path.join(resolvedBundle, INFO_PLIST_RELATIVE_PATH);
   const codeSignaturePath = path.join(resolvedBundle, CODE_SIGNATURE_RELATIVE_PATH);
   const rootExecutablePath = path.join(resolvedBundle, ROOT_EXECUTABLE_RELATIVE_PATH);
 
-  if (process.platform !== "darwin" && !appAsarPath && !env.DSCB_CODEX_APP_ASAR) {
+  if (platform !== "darwin" && platform !== "win32" && !appAsarPath && !env.DSCB_CODEX_APP_ASAR) {
     return { status: "unsupported", appAsarPath: resolvedAsar, appBundlePath: resolvedBundle };
   }
-  if (!fs.existsSync(resolvedAsar)) {
+  if (!resolvedAsar || !fs.existsSync(resolvedAsar)) {
     return { status: "missing", appAsarPath: resolvedAsar, appBundlePath: resolvedBundle };
   }
 
@@ -429,11 +689,75 @@ export function patchCodexDesktop({
   }
 
   if (target.status === "patched") {
-    return { status: "already-patched", appAsarPath: resolvedAsar, appBundlePath: resolvedBundle, filePath: target.filePath };
+    return {
+      status: "already-patched",
+      appAsarPath: resolvedAsar,
+      appBundlePath: resolvedBundle,
+      filePath: target.filePath,
+      managedCopy: Boolean(priorState?.managedCopy || managedCopy),
+      launcherPath: priorState?.launcherPath || launcherPath,
+    };
   }
   if (target.status !== "patchable") {
     return { status: target.status, appAsarPath: resolvedAsar, appBundlePath: resolvedBundle };
   }
+
+  if (platform === "win32") {
+    try {
+      fs.accessSync(resolvedAsar, fs.constants.W_OK);
+    } catch {
+      return { status: "not-writable", appAsarPath: resolvedAsar, appBundlePath: resolvedBundle };
+    }
+
+    const beforeHeaderHash = sha256(asar.headerBytes);
+    const originalAsarSha256 = sha256File(resolvedAsar);
+    const backups =
+      priorState?.originalAsarSha256 === originalAsarSha256 &&
+      priorState?.appAsarBackupPath &&
+      fs.existsSync(priorState.appAsarBackupPath)
+        ? { appAsarBackupPath: priorState.appAsarBackupPath }
+        : backupPaths(bridgeHome, originalAsarSha256);
+
+    try {
+      if (!fs.existsSync(backups.appAsarBackupPath)) {
+        copyFileBackup(resolvedAsar, backups.appAsarBackupPath);
+      }
+      const hashes = writePatchedAsar(resolvedAsar, asar, target);
+      const state = {
+        stateSchemaVersion: PATCH_SCHEMA_VERSION,
+        patchVersion: PATCH_VERSION,
+        platform: "win32",
+        active: true,
+        appBundlePath: resolvedBundle,
+        sourceAppBundlePath,
+        appAsarPath: resolvedAsar,
+        appAsarBackupPath: backups.appAsarBackupPath,
+        managedCopy,
+        launcherPath,
+        patchedFilePath: target.filePath,
+        originalAsarSha256,
+        patchedAsarSha256: sha256File(resolvedAsar),
+        originalHeaderHash: beforeHeaderHash,
+        patchedHeaderHash: hashes.headerHash,
+        codesignVerified: null,
+        patchedAt: new Date().toISOString(),
+      };
+      writeJson(patchStatePath(bridgeHome), state);
+      return { status: "patched", ...state };
+    } catch (error) {
+      restoreBackups({
+        appAsarPath: resolvedAsar,
+        state: { appAsarBackupPath: backups.appAsarBackupPath },
+      });
+      return {
+        status: "error",
+        appAsarPath: resolvedAsar,
+        appBundlePath: resolvedBundle,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   if (!fs.existsSync(infoPlistPath)) {
     return { status: "missing-info-plist", appAsarPath: resolvedAsar, infoPlistPath };
   }
@@ -454,7 +778,6 @@ export function patchCodexDesktop({
 
   const beforeHeaderHash = sha256(asar.headerBytes);
   const originalAsarSha256 = sha256File(resolvedAsar);
-  const priorState = readJson(patchStatePath(bridgeHome));
   const backups =
     priorState?.originalAsarSha256 === originalAsarSha256 &&
     priorState?.appAsarBackupPath &&
@@ -541,6 +864,7 @@ export function restoreCodexDesktopPatch({
   bridgeHome = defaultBridgeHome(env),
   appAsarPath = "",
   runCommand = defaultRunCommand,
+  platform = process.platform,
 } = {}) {
   const statePath = patchStatePath(bridgeHome);
   const state = readJson(statePath);
@@ -548,11 +872,79 @@ export function restoreCodexDesktopPatch({
     return { changed: false, status: "not-managed" };
   }
 
-  const resolvedAsar = path.resolve(appAsarPath || state.appAsarPath || resolveAppAsar({ env }));
-  const resolvedBundle = appBundleFromAsar(resolvedAsar) || state.appBundlePath || resolveCodexApp({ env });
+  const statePlatform = state.platform || (state.infoPlistPath ? "darwin" : platform);
+  const resolvedAsar = path.resolve(appAsarPath || state.appAsarPath || resolveAppAsar({ env, platform: statePlatform, state }));
+  const resolvedBundle = appBundleFromAsar(resolvedAsar) || state.appBundlePath || resolveCodexApp({ env, platform: statePlatform });
   const infoPlistPath = state.infoPlistPath || path.join(resolvedBundle, INFO_PLIST_RELATIVE_PATH);
   const codeSignaturePath = state.codeSignaturePath || path.join(resolvedBundle, CODE_SIGNATURE_RELATIVE_PATH);
   const rootExecutablePath = state.rootExecutablePath || path.join(resolvedBundle, ROOT_EXECUTABLE_RELATIVE_PATH);
+
+  if (statePlatform === "win32") {
+    if (!state.active) {
+      return { changed: false, status: "not-managed" };
+    }
+    if (state.managedCopy) {
+      const preRestoreBackupPath = fs.existsSync(resolvedAsar)
+        ? path.join(patchWorkDir(bridgeHome), `app.asar.pre-restore.${timestamp()}.bak`)
+        : "";
+      if (preRestoreBackupPath) {
+        ensureDir(path.dirname(preRestoreBackupPath));
+        fs.copyFileSync(resolvedAsar, preRestoreBackupPath);
+      }
+      if (state.appBundlePath) {
+        fs.rmSync(state.appBundlePath, { recursive: true, force: true });
+      }
+      if (state.launcherPath) {
+        fs.rmSync(state.launcherPath, { force: true });
+      }
+      writeJson(statePath, {
+        ...state,
+        active: false,
+        restoredAt: new Date().toISOString(),
+        preRestoreBackupPath,
+      });
+      return {
+        changed: true,
+        status: "restored",
+        appAsarPath: resolvedAsar,
+        appBundlePath: resolvedBundle,
+        preRestoreBackupPath,
+      };
+    }
+    if (!state.appAsarBackupPath || !fs.existsSync(state.appAsarBackupPath)) {
+      return { changed: false, status: "missing-backup", appAsarPath: resolvedAsar };
+    }
+    if (fs.existsSync(resolvedAsar) && state.patchedAsarSha256 && sha256File(resolvedAsar) !== state.patchedAsarSha256) {
+      return {
+        changed: false,
+        status: "app-changed",
+        appAsarPath: resolvedAsar,
+        appBundlePath: resolvedBundle,
+      };
+    }
+    const preRestoreBackupPath = path.join(patchWorkDir(bridgeHome), `app.asar.pre-restore.${timestamp()}.bak`);
+    ensureDir(path.dirname(preRestoreBackupPath));
+    if (fs.existsSync(resolvedAsar)) {
+      fs.copyFileSync(resolvedAsar, preRestoreBackupPath);
+    }
+    fs.copyFileSync(state.appAsarBackupPath, resolvedAsar);
+    if (state.launcherPath) {
+      fs.rmSync(state.launcherPath, { force: true });
+    }
+    writeJson(statePath, {
+      ...state,
+      active: false,
+      restoredAt: new Date().toISOString(),
+      preRestoreBackupPath,
+    });
+    return {
+      changed: true,
+      status: "restored",
+      appAsarPath: resolvedAsar,
+      appBundlePath: resolvedBundle,
+      preRestoreBackupPath,
+    };
+  }
 
   if (!state.active) {
     if (state.restoreCodesignVerified !== false) {

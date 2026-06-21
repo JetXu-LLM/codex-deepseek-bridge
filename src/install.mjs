@@ -434,6 +434,7 @@ export function configureCodex({
   port = 8787,
   reasoningEffort = "high",
   vision = false,
+  includeFlash = true,
   installMethod = "source",
   bridgeVersion = "0.0.0",
   runCodex = defaultRunCodex,
@@ -449,7 +450,8 @@ export function configureCodex({
 
   // Catalog is regenerated from code every reconcile (single source of truth).
   const previousCatalog = fs.existsSync(catalogPath) ? fs.readFileSync(catalogPath, "utf8") : "";
-  writeJson(catalogPath, buildModelCatalog({ vision }));
+  const catalog = buildModelCatalog({ vision, includeFlash });
+  writeJson(catalogPath, catalog);
   const catalogChanged = previousCatalog !== fs.readFileSync(catalogPath, "utf8");
 
   // Back up the user's original config once; preserve that backup across re-runs.
@@ -505,6 +507,7 @@ export function configureCodex({
     providerSource: providerStrategy.providerSource,
     historyProviderId: providerStrategy.historyProviderId,
     historyPreserved: providerStrategy.historyPreserved,
+    catalogModelIds: catalog.models.map((entry) => entry.slug || entry.id).filter(Boolean),
     installedAt: new Date().toISOString(),
   });
 
@@ -522,6 +525,7 @@ export function configureCodex({
     providerSource: providerStrategy.providerSource,
     historyProviderId: providerStrategy.historyProviderId,
     historyPreserved: providerStrategy.historyPreserved,
+    catalogModelIds: catalog.models.map((entry) => entry.slug || entry.id).filter(Boolean),
     keyStored,
     loginMode: login.loginMode,
     loginAction: login.action,

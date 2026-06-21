@@ -5,6 +5,35 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.10
+
+Adds a safer Desktop patch rollout model and Windows picker-patch support.
+
+### Added
+
+- `setup --desktop-patch` now supports Windows Electron installs by backing up and patching
+  `resources/app.asar`.
+- Windows Store installs are mirrored into a managed writable copy under
+  `<bridgeHome>/desktop-patch/windows-store-apps/`; setup prints a `Codex-DeepSeek.cmd` launcher for
+  that patched copy.
+- `restore` now removes Windows managed Desktop copies and launchers in addition to restoring
+  writable Windows app bundles.
+
+### Changed
+
+- Config-only setup now publishes only `deepseek-pro`. `deepseek-flash` is published only when the
+  Desktop picker patch is active.
+- The running `/v1/models` endpoint follows the same active catalog so config-only mode exposes only
+  `deepseek-pro`.
+- README now leads with direct setup commands instead of the old paste-a-prompt flow, and documents
+  the Codex Desktop picker issue tracked in openai/codex#19694.
+
+### Security
+
+- Public docs now state clearly that `--desktop-patch` modifies local Codex Desktop app files, that
+  this project does not distribute a modified Codex app, and that users should review their own
+  legal, workplace, and contract obligations before opting in.
+
 ## 0.1.9
 
 Makes provider selection history-aware while avoiding reserved provider overrides.

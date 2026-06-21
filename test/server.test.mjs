@@ -2,7 +2,7 @@ import http from "node:http";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildRuntimeConfig } from "../src/config.mjs";
-import { startServer } from "../src/server.mjs";
+import { modelList, startServer } from "../src/server.mjs";
 
 async function startMockDeepSeek(handler) {
   const server = http.createServer(handler);
@@ -127,6 +127,11 @@ test("uses Codex bearer token as DeepSeek key when process key is absent", async
   assert.equal(response.status, 200);
   assert.equal(upstreamAuth, "Bearer test-deepseek-key");
   assert.equal(json.output_text, "bearer-ok");
+});
+
+test("modelList can publish only deepseek-pro when Desktop patch is inactive", () => {
+  const models = modelList(buildRuntimeConfig({}, { includeFlash: false }));
+  assert.deepEqual(models.data.map((entry) => entry.id), ["deepseek-pro"]);
 });
 
 test("serves streaming Responses events", async (t) => {

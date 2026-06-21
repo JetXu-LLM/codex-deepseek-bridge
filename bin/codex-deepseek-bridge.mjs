@@ -185,16 +185,24 @@ function historyLine(result) {
   return "History: existing chats are unchanged and return after restore, but chats under another provider may be hidden while DeepSeek is active.";
 }
 
+function catalogIncludesFlash(stateOrResult) {
+  return Array.isArray(stateOrResult?.catalogModelIds) && stateOrResult.catalogModelIds.includes("deepseek-flash");
+}
+
 function setupSuccessMessage(result, started) {
   const loginMode = result.loginMode;
   const runningLine = started
     ? `Bridge running: http://127.0.0.1:${result.port}/report`
     : "Start the bridge with: codex-deepseek-bridge start";
+  const modelLine = catalogIncludesFlash(result)
+    ? "Next: restart Codex, then pick deepseek-pro or deepseek-flash."
+    : "Next: restart Codex. Codex is configured for deepseek-pro; deepseek-flash is enabled only when the Desktop picker patch is active.";
   if (loginMode === "chatgpt") {
     return [
       "Configured Codex for DeepSeek. Your ChatGPT login was left unchanged.",
       historyLine(result),
       runningLine,
+      modelLine,
       "Start the bridge again later with: codex-deepseek-bridge start",
     ].join("\n");
   }
@@ -203,7 +211,7 @@ function setupSuccessMessage(result, started) {
       "Configured Codex for DeepSeek. I could not confirm your Codex login state, so I left it unchanged.",
       historyLine(result),
       runningLine,
-      "Next: restart Codex, then pick deepseek-pro or deepseek-flash.",
+      modelLine,
     ].join("\n");
   }
   if (loginMode === "api-key") {
@@ -211,7 +219,7 @@ function setupSuccessMessage(result, started) {
       "Configured Codex for DeepSeek. Your existing API-key login was left unchanged.",
       historyLine(result),
       runningLine,
-      "Next: restart Codex, then pick deepseek-pro or deepseek-flash.",
+      modelLine,
       "Start the bridge again later with: codex-deepseek-bridge start",
     ].join("\n");
   }
@@ -220,26 +228,27 @@ function setupSuccessMessage(result, started) {
     "Configured Codex for DeepSeek. No Codex login was changed; the bridge will use your stored DeepSeek key.",
     historyLine(result),
     runningLine,
-    "Next: restart Codex, then pick deepseek-pro or deepseek-flash.",
+    modelLine,
     "Start the bridge again later with: codex-deepseek-bridge start",
     `Tip: star the repo so this command is easy to find — ${REPO_URL}`,
   ].join("\n");
 }
 
 function desktopPatchLine(result) {
+  const launcher = result?.launcherPath ? ` Use the managed Windows launcher: ${result.launcherPath}` : "";
   switch (result?.status) {
     case "patched":
-      return "Codex Desktop model picker patch: applied. Restore will undo it.";
+      return `Codex Desktop model picker patch: applied. Restore will undo it.${launcher}`;
     case "already-patched":
-      return "Codex Desktop model picker patch: already applied.";
+      return `Codex Desktop model picker patch: already applied.${launcher}`;
     case "disabled":
       return "Codex Desktop model picker patch: skipped.";
     case "needs-consent":
       return "Codex Desktop model picker patch: skipped. Run setup --desktop-patch to apply it explicitly.";
     case "unsupported":
-      return "Codex Desktop model picker patch: not needed on this platform.";
+      return "Codex Desktop model picker patch: not supported on this platform.";
     case "missing":
-      return "Codex Desktop model picker patch: Codex.app was not found.";
+      return "Codex Desktop model picker patch: Codex Desktop app was not found.";
     case "not-writable":
       return "Codex Desktop model picker patch: skipped because Codex.app is not writable.";
     case "target-not-found":
@@ -249,7 +258,7 @@ function desktopPatchLine(result) {
     case "missing-info-plist":
     case "missing-code-signature":
     case "missing-root-executable":
-      return "Codex Desktop model picker patch: skipped because the Codex.app bundle is incomplete.";
+      return "Codex Desktop model picker patch: skipped because the Codex Desktop app bundle is incomplete.";
     case "error":
       return `Codex Desktop model picker patch: failed (${result.reason || "unknown error"}).`;
     case "patchable":
@@ -271,7 +280,7 @@ function doctorDesktopPatchText(result) {
     case "unsupported":
       return "not needed on this platform";
     case "missing":
-      return "Codex.app not found";
+      return "Codex Desktop app not found";
     case "target-not-found":
       return "unrecognized Desktop build";
     case "ambiguous":
@@ -296,8 +305,9 @@ async function maybePatchCodexDesktop(args, env, bridgeHome) {
   const explicit = args["desktop-patch"] === true || env.DSCB_DESKTOP_PATCH === "on";
   if (!explicit) {
     out("Codex Desktop is filtering custom catalog models before they reach the picker.");
-    out("The optional picker patch modifies your local Codex.app bundle, updates Electron ASAR integrity, and re-signs it locally.");
-    out("A normal restore will put the original app bundle files back.");
+    out("The optional picker patch modifies local Codex Desktop app files. On macOS it also updates Electron ASAR integrity and re-signs locally.");
+    out("On Windows Store installs it may create a managed writable Codex copy and launcher instead of touching WindowsApps.");
+    out("A normal restore will put the original files back or remove the managed copy.");
     const ok = await confirm("Apply the Codex Desktop picker patch now? [y/N] ");
     if (!ok) {
       return { status: "needs-consent" };
@@ -333,16 +343,19 @@ async function cmdSetup(args, env, config) {
     out(`Port ${preferredPort} is in use. Using ${port} instead and writing it into your Codex config.`);
   }
 
+  const desktopPatch = await maybePatchCodexDesktop(args, env, bridgeHome);
+  const includeFlash = new Set(["patched", "already-patched"]).has(desktopPatch?.status);
+
   const result = configureCodex({
     env,
     apiKey: key,
     host: config.host,
     port,
     vision: config.enableVision,
+    includeFlash,
     installMethod: detectInstallMethod(),
     bridgeVersion: bridgeVersion(),
   });
-  const desktopPatch = await maybePatchCodexDesktop(args, env, bridgeHome);
 
   let started = false;
   if (args["no-start"] !== true) {
@@ -371,15 +384,16 @@ async function cmdStart(args, env, config) {
   const port = await findAvailablePort(preferredPort, config.host);
   if (state && port !== state.port) {
     // Reconcile the config to the port we will actually bind (preserve key/login).
-    configureCodex({
-      env,
-      apiKey: "",
-      host: config.host,
-      port,
-      vision: config.enableVision,
-      installMethod: state.installMethod || detectInstallMethod(),
-      bridgeVersion: bridgeVersion(),
-      adaptLogin: false,
+      configureCodex({
+        env,
+        apiKey: "",
+        host: config.host,
+        port,
+        vision: config.enableVision,
+        includeFlash: catalogIncludesFlash(state),
+        installMethod: state.installMethod || detectInstallMethod(),
+        bridgeVersion: bridgeVersion(),
+        adaptLogin: false,
     });
   }
   launchDaemon(config, port, env);
@@ -610,21 +624,23 @@ async function cmdUpgrade(args, env, config) {
   }
 
   const port = state?.port || config.port || 8787;
+  const currentDesktopPatch = inspectCodexDesktopPatch({ env, bridgeHome });
+  const desktopPatch =
+    currentDesktopPatch.state?.active || env.DSCB_DESKTOP_PATCH === "on"
+      ? patchCodexDesktop({ env, bridgeHome })
+      : currentDesktopPatch;
+  const includeFlash = new Set(["patched", "already-patched"]).has(desktopPatch?.status) || catalogIncludesFlash(state);
   const reconcile = configureCodex({
     env,
     apiKey: "",
     host: config.host,
     port,
     vision: config.enableVision,
+    includeFlash,
     installMethod: method,
     bridgeVersion: latest,
     adaptLogin: false,
   });
-  const currentDesktopPatch = inspectCodexDesktopPatch({ env, bridgeHome });
-  const desktopPatch =
-    currentDesktopPatch.state?.active || env.DSCB_DESKTOP_PATCH === "on"
-      ? patchCodexDesktop({ env, bridgeHome })
-      : currentDesktopPatch;
   restartBridge(config, reconcile.port, env);
 
   if (reconcile.catalogChanged || desktopPatch.status === "patched") {
@@ -672,6 +688,8 @@ function cmdStop(config) {
 // ---- serve (internal/foreground) --------------------------------------------
 
 async function cmdServe(config, env) {
+  const state = readInstallState(defaultBridgeHome(env));
+  config.includeFlash = catalogIncludesFlash(state);
   fs.mkdirSync(path.dirname(config.pidFile), { recursive: true });
   fs.writeFileSync(config.pidFile, `${process.pid}\n`);
   const server = await startServer(config);

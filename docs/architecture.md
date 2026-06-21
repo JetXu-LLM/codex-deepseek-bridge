@@ -11,9 +11,9 @@ back. One process serves the bridge and the local report.
 - `src/server.mjs` — the localhost HTTP server and routes.
 - `src/translate.mjs` — Responses ⇄ Chat Completions translation, tools, streaming, usage.
 - `src/models.mjs` — the two Codex-facing slugs and their upstream mapping.
-- `src/catalog.mjs` — the two-model catalog and the managed `config.toml` block.
+- `src/catalog.mjs` — the DeepSeek model catalog and the managed `config.toml` block.
 - `src/install.mjs` — config writer, key storage, login detect-and-adapt, install state, restore.
-- `src/desktop-patch.mjs` — macOS Codex Desktop picker compatibility patch and restore.
+- `src/desktop-patch.mjs` — Codex Desktop picker compatibility patch and restore.
 - `src/report.mjs` / `src/prompt-diagnostics.mjs` — the local report and cache diagnostics.
 - `src/update-check.mjs` / `src/upgrade.mjs` / `src/version.mjs` — version, update check, upgrade.
 
@@ -32,28 +32,53 @@ flowchart LR
 The server binds `127.0.0.1:8787` and serves:
 
 - `POST /v1/responses` and `POST /responses`
-- `GET /v1/models` and `GET /models` — the two-model catalog
+- `GET /v1/models` and `GET /models` — the active DeepSeek catalog
 - `GET /health` — liveness, version, and port
 - `GET /report` and `GET /report/data` — the local usage and cache report
 
 ## Desktop picker compatibility
 
-The Codex app-server can read `model_catalog_json` and return `deepseek-pro` plus
-`deepseek-flash`. Some current macOS Codex Desktop renderer builds still filter that list through a
-remote hidden-model allowlist before rendering the picker. When that exact bundle shape is detected,
-interactive `setup` asks before patching the renderer's allowlist gate so visible models are decided
-by the local catalog's `hidden` flag. Automation can opt in with `setup --desktop-patch`.
+The Codex app-server can read `model_catalog_json` and return the DeepSeek catalog. Some current
+Codex Desktop renderer builds still filter that list through a remote hidden-model allowlist before
+rendering the picker. This is tracked upstream in
+[openai/codex#19694](https://github.com/openai/codex/issues/19694).
+
+Without the Desktop patch, setup publishes only `deepseek-pro` and sets `model = "deepseek-pro"`.
+With the Desktop patch active, setup publishes both `deepseek-pro` and `deepseek-flash`.
+
+```mermaid
+sequenceDiagram
+  participant Catalog as model_catalog_json
+  participant AppServer as Codex app-server
+  participant Renderer as Desktop renderer
+  participant Gate as visible-model gate
+  participant Bridge as Local bridge
+  participant DeepSeek as DeepSeek API
+
+  Catalog->>AppServer: deepseek-pro / optional deepseek-flash
+  AppServer-->>Renderer: model/list includes custom catalog models
+  Renderer->>Gate: applies Desktop visible-model filter
+  Gate-->>Renderer: custom models may be removed from picker
+  Renderer->>Bridge: /v1/responses
+  Bridge->>DeepSeek: /chat/completions
+```
+
+When that exact bundle shape is detected, interactive `setup` asks before patching the renderer's
+allowlist gate so visible models are decided by the local catalog's `hidden` flag. Automation can
+opt in with `setup --desktop-patch`.
 
 The patch is conservative:
 
-- It is macOS-only and skipped with `DSCB_DESKTOP_PATCH=off`.
+- It is skipped with `DSCB_DESKTOP_PATCH=off`.
 - It requires interactive confirmation, `setup --desktop-patch`, or `DSCB_DESKTOP_PATCH=on`.
 - It only applies when the known picker filter appears exactly once.
-- It updates the ASAR file integrity metadata in `Info.plist`.
-- It re-signs the local Codex app bundle after patching, without deep-signing nested code.
-- It backs up the root executable too, because macOS signing can rewrite its embedded signature.
+- On macOS, it updates the ASAR file integrity metadata in `Info.plist`.
+- On macOS, it re-signs the local Codex app bundle after patching, without deep-signing nested code.
+- On macOS, it backs up the root executable too, because signing can rewrite its embedded signature.
+- On Windows writable installs, it patches `resources/app.asar` in place after backing it up.
+- On Windows Store installs, it mirrors the app into a managed writable copy and writes a launcher.
 - It records backups so `restore` can put the original app bundle files back.
-- It verifies the restored bundle and performs a local re-sign only if verification fails.
+- On macOS, it verifies the restored bundle and performs a local re-sign only if verification fails.
 
 If Codex Desktop later supports custom catalog models without this renderer filter, the patch target
 will be absent and `setup` will leave the app untouched.
@@ -61,7 +86,7 @@ will be absent and `setup` will leave the app untouched.
 ## The generated Codex config
 
 `setup` writes one managed block at the top of `~/.codex/config.toml` (`%USERPROFILE%\.codex` on
-Windows), after backing up any existing file:
+Windows), after backing up any existing file. Config-only mode writes a one-model catalog:
 
 ```toml
 # >>> codex-deepseek-bridge
@@ -78,6 +103,8 @@ wire_api = "responses"
 requires_openai_auth = false
 # <<< codex-deepseek-bridge
 ```
+
+When the Desktop picker patch is active, `models.json` also includes `deepseek-flash`.
 
 `setup` may choose a different provider strategy to preserve local history. Current Codex Desktop
 builds scope local thread history by provider id, so setup first looks at the original config and
@@ -98,7 +125,8 @@ or provider table.
 
 ## Models and reasoning
 
-The picker shows exactly two slugs. Each maps to a configurable upstream model:
+The bridge knows two Codex-facing slugs. Config-only setup publishes `deepseek-pro`; patched Desktop
+setup publishes both. Each maps to a configurable upstream model:
 
 | Codex slug | Upstream model (configurable) |
 | --- | --- |
@@ -111,7 +139,7 @@ generation. Unknown or dated slugs fold to the nearest known slug so old session
 `models.json` carries both Codex CLI catalog fields (`slug`, `display_name`,
 `default_reasoning_level`, `supported_reasoning_levels`) and Codex desktop app-server fields
 (`model`, `displayName`, `defaultReasoningEffort`, `supportedReasoningEfforts`). `deepseek-pro` has
-the first catalog priority so the desktop app keeps it as the default after app-server sorting.
+the first catalog priority and is always the default.
 
 Each model exposes three reasoning efforts:
 

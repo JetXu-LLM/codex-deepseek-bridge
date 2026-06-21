@@ -9,9 +9,9 @@ export const BRIDGE_PROVIDER_NAME = "DeepSeek (via Codex DeepSeek Bridge)";
 export const MANAGED_BLOCK_START = "# >>> codex-deepseek-bridge";
 export const MANAGED_BLOCK_END = "# <<< codex-deepseek-bridge";
 
-export function buildModelCatalog({ vision = false } = {}) {
+export function buildModelCatalog({ vision = false, includeFlash = true } = {}) {
   return {
-    models: catalogModels({ vision }),
+    models: catalogModels({ vision, includeFlash }),
   };
 }
 

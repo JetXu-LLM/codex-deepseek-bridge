@@ -46,6 +46,7 @@ export function buildRuntimeConfig(env = process.env, overrides = {}) {
     port: Number(overrides.port ?? env.PORT ?? 8787),
     deepseekBaseUrl: overrides.deepseekBaseUrl ?? env.DEEPSEEK_BASE_URL ?? DEFAULT_DEEPSEEK_BASE_URL,
     upstreamModels,
+    includeFlash: overrides.includeFlash ?? optionalBooleanEnv(env.DSCB_INCLUDE_FLASH, true),
     upstreamModel: overrides.upstreamModel ?? upstreamModels[DEFAULT_CODEX_MODEL],
     modelAlias: overrides.modelAlias ?? DEFAULT_MODEL_ALIAS,
     enableVision: overrides.enableVision ?? isEnabled(env.DEEPSEEK_ENABLE_VISION || "0"),
@@ -59,6 +60,13 @@ export function buildRuntimeConfig(env = process.env, overrides = {}) {
     stdoutLog: overrides.stdoutLog ?? env.DSCB_STDOUT_LOG ?? path.join(defaultBridgeHome(env), "bridge.stdout.log"),
     stderrLog: overrides.stderrLog ?? env.DSCB_STDERR_LOG ?? path.join(defaultBridgeHome(env), "bridge.stderr.log"),
   };
+}
+
+function optionalBooleanEnv(value, fallback) {
+  if (value == null) {
+    return fallback;
+  }
+  return value === "1" || value === "true" || value === "on" || value === "yes";
 }
 
 export function parseArgs(argv) {
