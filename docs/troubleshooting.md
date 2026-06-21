@@ -41,7 +41,8 @@ patch it. Open an issue with the Codex version and the `doctor` output.
 On Windows Store installs, setup may print a managed launcher path. Use that launcher to open the
 patched copy; the normal Windows Store shortcut still opens the unpatched app.
 
-If you want to undo everything, run `codex-deepseek-bridge restore` and restart Codex.
+If you want to undo everything, run `codex-deepseek-bridge restore`; it restores Codex config,
+restores the Desktop picker patch when present, and stops the bridge. Then restart Codex.
 
 On macOS, maintainers can verify the exact desktop app-server response with:
 
@@ -155,7 +156,7 @@ likely cause. The bridge does not rewrite prompts; it reports so you can diagnos
 ## Going back to GPT
 
 ```bash
-codex-deepseek-bridge restore           # restore your previous Codex config and Desktop picker patch
+codex-deepseek-bridge restore           # restore config/picker patch and stop the bridge
 codex-deepseek-bridge restore --logout  # also remove an API-key login from older bridge setups
 ```
 

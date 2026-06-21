@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.12
+
+Tightens restore semantics after the direct setup flow.
+
+### Changed
+
+- `restore` now also stops the bridge background process for the active bridge home. It still keeps
+  the stored DeepSeek key unless the user explicitly runs `restore --logout`.
+
 ## 0.1.11
 
 Polishes the Windows/Desktop-patch release and the direct user setup path.

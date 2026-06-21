@@ -515,37 +515,40 @@ async function cmdDoctor(args, env, config) {
 
 // ---- restore ----------------------------------------------------------------
 
-function cmdRestore(args, env) {
+function withStoppedBridge(message, stopped) {
+  return stopped?.stopped ? `${message} Stopped the bridge.` : message;
+}
+
+function cmdRestore(args, env, config) {
   const bridgeHome = defaultBridgeHome(env);
+  const stopped = stopDaemon(config.pidFile);
   const result = restoreCodexConfig({ env, backupPath: args["from-backup"] || args.backup || "" });
   const desktopRestore = restoreCodexDesktopPatch({ env, bridgeHome });
 
   if (args.logout === true) {
     codexLogout();
     removeStoredKey(bridgeHome);
-    out(
-      desktopRestore.changed
-        ? "Restored your previous Codex config and Desktop picker, then removed the API-key login plus stored DeepSeek key. Restart Codex."
-        : "Restored your previous Codex config and removed the API-key login plus stored DeepSeek key. Restart Codex.",
-    );
+    const message = desktopRestore.changed
+      ? "Restored your previous Codex config and Desktop picker, then removed the API-key login plus stored DeepSeek key. Restart Codex."
+      : "Restored your previous Codex config and removed the API-key login plus stored DeepSeek key. Restart Codex.";
+    out(withStoppedBridge(message, stopped));
     return 0;
   }
   if (!result.changed && !desktopRestore.changed) {
-    out("No bridge config found. Nothing to restore.");
+    out(withStoppedBridge("No bridge config found. Nothing to restore.", stopped));
     return 0;
   }
   if (desktopRestore.status === "signature-repaired") {
-    out(
-      result.changed
-        ? "Restored your previous Codex config and repaired the Codex Desktop app signature. Restart Codex to apply."
-        : "Repaired the Codex Desktop app signature. Restart Codex to apply.",
-    );
+    const message = result.changed
+      ? "Restored your previous Codex config and repaired the Codex Desktop app signature. Restart Codex to apply."
+      : "Repaired the Codex Desktop app signature. Restart Codex to apply.";
+    out(withStoppedBridge(message, stopped));
   } else if (desktopRestore.changed && result.changed) {
-    out("Restored your previous Codex config and Desktop picker. Restart Codex to apply.");
+    out(withStoppedBridge("Restored your previous Codex config and Desktop picker. Restart Codex to apply.", stopped));
   } else if (desktopRestore.changed) {
-    out("Restored the Codex Desktop picker. Restart Codex to apply.");
+    out(withStoppedBridge("Restored the Codex Desktop picker. Restart Codex to apply.", stopped));
   } else {
-    out("Restored your previous Codex config. Restart Codex to apply.");
+    out(withStoppedBridge("Restored your previous Codex config. Restart Codex to apply.", stopped));
   }
   return 0;
 }
@@ -773,7 +776,7 @@ async function main() {
     case "doctor":
       return cmdDoctor(args, env, config);
     case "restore":
-      return cmdRestore(args, env);
+      return cmdRestore(args, env, config);
     case "upgrade":
       return cmdUpgrade(args, env, config);
     case "version":

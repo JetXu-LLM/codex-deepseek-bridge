@@ -58,7 +58,8 @@ codex-deepseek-bridge start
 - macOS starts a detached process that survives closing the terminal.
 - Windows starts a background process; re-run `start` after a reboot or new login.
 
-`start` is idempotent: if the bridge is already running it reports the port and exits.
+`start` is idempotent: if the bridge is already running it reports the port and exits. `restore`
+stops the background bridge process after restoring Codex config and any managed Desktop patch.
 
 ## Desktop picker patch
 

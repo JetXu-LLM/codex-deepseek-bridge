@@ -117,8 +117,8 @@ the local thread database:
 - If the provider is another reserved built-in id, or no useful history exists, setup uses the
   independent `deepseek_bridge` provider shown above.
 
-`restore` writes the original config back from the setup backup, including any prior proxy base URL
-or provider table.
+`restore` stops the bridge background process and writes the original config back from the setup
+backup, including any prior proxy base URL or provider table.
 
 `<bridgeHome>` defaults to `<CODEX_HOME>/codex-deepseek-bridge`. It also holds `models.json`,
 `deepseek-key`, `install-state.json`, and the daemon's pid and logs.

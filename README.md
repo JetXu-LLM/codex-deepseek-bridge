@@ -66,7 +66,7 @@ The screenshot above requires `setup --desktop-patch`.
 - Windows Store installs: creates a writable managed Codex copy under the bridge state directory and
   prints a launcher path. Use that launcher to open the patched copy.
 
-Undo everything with:
+Restore your previous Codex setup and stop the bridge with:
 
 ```bash
 codex-deepseek-bridge restore
