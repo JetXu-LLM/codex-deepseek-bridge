@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { defaultBridgeHome } from "./config.mjs";
 
 const STATE_FILE = "desktop-patch-state.json";
@@ -36,6 +36,11 @@ const APPLIED_NEEDLES = [
   /[,;][A-Za-z_$][\w$]*=0&&[A-Za-z_$][\w$]*!==`amazonBedrock`;/,
   /[,;][A-Za-z_$][\w$]*=0&&[A-Za-z_$][\w$]*!=="amazonBedrock";/,
 ];
+
+const HISTORY_PROVIDER_FILTER_BEFORE = "modelProviders:null";
+const HISTORY_PROVIDER_FILTER_AFTER = "modelProviders:[]  ";
+const PATCH_MODEL_PICKER = "model-picker";
+const PATCH_HISTORY_PROVIDER_FILTER = "history-provider-filter";
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -268,6 +273,28 @@ function appBundleFromAsar(appAsarPath) {
   return path.dirname(contentsDir);
 }
 
+function inspectMacCodeSignature(appBundlePath, platform) {
+  if (platform !== "darwin" || !appBundlePath || !fs.existsSync(appBundlePath)) {
+    return null;
+  }
+  try {
+    const result = spawnSync("codesign", ["-dv", appBundlePath], { encoding: "utf8" });
+    const text = `${result.stdout || ""}\n${result.stderr || ""}`;
+    if (!text.trim()) {
+      return null;
+    }
+    const signature = text.match(/^Signature=(.+)$/m)?.[1]?.trim() || "";
+    const teamIdentifier = text.match(/^TeamIdentifier=(.+)$/m)?.[1]?.trim() || "";
+    return {
+      signature,
+      teamIdentifier,
+      adhoc: signature === "adhoc" || /flags=.*\badhoc\b/.test(text),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function readAsarHeader(appAsarPath) {
   const fd = fs.openSync(appAsarPath, "r");
   try {
@@ -354,7 +381,7 @@ function replaceOnce(text) {
   return { state: "missing" };
 }
 
-function patchFileContent(bytes) {
+function patchModelPickerContent(bytes) {
   const text = bytes.toString("utf8");
   if (!text.includes("availableModels") || !text.includes("useHiddenModels") || !text.includes("amazonBedrock")) {
     return { state: "missing" };
@@ -368,6 +395,56 @@ function patchFileContent(bytes) {
     return { state: "unsafe-size-change" };
   }
   return { state: "patchable", bytes: patched };
+}
+
+function patchHistoryProviderFilterContent(bytes) {
+  const text = bytes.toString("utf8");
+  if (text.includes(HISTORY_PROVIDER_FILTER_AFTER)) {
+    return { state: "patched" };
+  }
+  const count = text.split(HISTORY_PROVIDER_FILTER_BEFORE).length - 1;
+  if (count === 0) {
+    return { state: "missing" };
+  }
+  const patched = Buffer.from(text.replaceAll(HISTORY_PROVIDER_FILTER_BEFORE, HISTORY_PROVIDER_FILTER_AFTER), "utf8");
+  if (patched.length !== bytes.length) {
+    return { state: "unsafe-size-change" };
+  }
+  return { state: "patchable", bytes: patched, count };
+}
+
+function patchFileContent(bytes) {
+  let current = bytes;
+  const patchNames = [];
+  const alreadyPatchNames = [];
+
+  const modelPicker = patchModelPickerContent(current);
+  if (modelPicker.state === "patchable") {
+    current = modelPicker.bytes;
+    patchNames.push(PATCH_MODEL_PICKER);
+  } else if (modelPicker.state === "patched") {
+    alreadyPatchNames.push(PATCH_MODEL_PICKER);
+  } else if (modelPicker.state === "ambiguous" || modelPicker.state === "unsafe-size-change") {
+    return modelPicker;
+  }
+
+  const historyProviderFilter = patchHistoryProviderFilterContent(current);
+  if (historyProviderFilter.state === "patchable") {
+    current = historyProviderFilter.bytes;
+    patchNames.push(PATCH_HISTORY_PROVIDER_FILTER);
+  } else if (historyProviderFilter.state === "patched") {
+    alreadyPatchNames.push(PATCH_HISTORY_PROVIDER_FILTER);
+  } else if (historyProviderFilter.state === "unsafe-size-change") {
+    return historyProviderFilter;
+  }
+
+  if (patchNames.length) {
+    return { state: "patchable", bytes: current, patchNames, alreadyPatchNames };
+  }
+  if (alreadyPatchNames.length) {
+    return { state: "patched", patchNames: alreadyPatchNames, alreadyPatchNames };
+  }
+  return { state: "missing" };
 }
 
 function updateEntryIntegrity(entry, bytes) {
@@ -395,26 +472,74 @@ function candidateAsarFiles(files) {
   return files.filter((file) => file.path.startsWith("webview/assets/") && file.path.endsWith(".js") && file.entry.size <= 20000);
 }
 
+function patchCandidateAsarFiles(files) {
+  const preferred = candidateAsarFiles(files);
+  const seen = new Set(preferred.map((file) => file.path));
+  const jsFiles = files.filter((file) => file.path.endsWith(".js") && !seen.has(file.path));
+  return [...preferred, ...jsFiles];
+}
+
 function findPatchTarget(appAsarPath, asar) {
   let ambiguous = false;
-  for (const file of candidateAsarFiles(listAsarFiles(asar.header))) {
+  let modelPickerSeen = false;
+  let filePath = "";
+  const patchNames = new Set();
+  const targets = [];
+  const files = patchCandidateAsarFiles(listAsarFiles(asar.header));
+
+  for (const file of files) {
     const { offset, bytes } = readAsarEntry(appAsarPath, asar.filesOffset, file.entry);
     const result = patchFileContent(bytes);
+    const names = [...(result.patchNames || []), ...(result.alreadyPatchNames || [])];
+    if (names.includes(PATCH_MODEL_PICKER)) {
+      modelPickerSeen = true;
+      filePath ||= file.path;
+    }
+    for (const name of names) {
+      patchNames.add(name);
+    }
     if (result.state === "patched") {
-      return { status: "patched", filePath: file.path, entry: file.entry, offset };
+      continue;
     }
     if (result.state === "patchable") {
-      return { status: "patchable", filePath: file.path, entry: file.entry, offset, patchedBytes: result.bytes };
+      targets.push({
+        filePath: file.path,
+        entry: file.entry,
+        offset,
+        patchedBytes: result.bytes,
+        patchNames: result.patchNames || [],
+      });
+      filePath ||= file.path;
+      continue;
     }
     if (result.state === "ambiguous" || result.state === "unsafe-size-change") {
       ambiguous = true;
     }
   }
-  return { status: ambiguous ? "ambiguous" : "target-not-found" };
+
+  if (ambiguous && !modelPickerSeen) {
+    return { status: "ambiguous" };
+  }
+  if (!modelPickerSeen) {
+    return { status: "target-not-found" };
+  }
+  if (targets.length) {
+    return {
+      status: "patchable",
+      filePath,
+      filePaths: targets.map((target) => target.filePath),
+      targets,
+      patchNames: [...patchNames],
+    };
+  }
+  return { status: "patched", filePath, patchNames: [...patchNames] };
 }
 
 function writePatchedAsar(appAsarPath, asar, target) {
-  updateEntryIntegrity(target.entry, target.patchedBytes);
+  const targets = target.targets || [target];
+  for (const patchTarget of targets) {
+    updateEntryIntegrity(patchTarget.entry, patchTarget.patchedBytes);
+  }
   const newHeaderText = JSON.stringify(asar.header);
   const newHeaderBytes = Buffer.from(newHeaderText, "utf8");
   if (newHeaderBytes.length !== asar.headerBytes.length) {
@@ -424,13 +549,16 @@ function writePatchedAsar(appAsarPath, asar, target) {
   const fd = fs.openSync(appAsarPath, "r+");
   try {
     fs.writeSync(fd, newHeaderBytes, 0, newHeaderBytes.length, 16);
-    fs.writeSync(fd, target.patchedBytes, 0, target.patchedBytes.length, target.offset);
+    for (const patchTarget of targets) {
+      fs.writeSync(fd, patchTarget.patchedBytes, 0, patchTarget.patchedBytes.length, patchTarget.offset);
+    }
   } finally {
     fs.closeSync(fd);
   }
   return {
     headerHash: sha256(newHeaderBytes),
-    fileHash: sha256(target.patchedBytes),
+    fileHash: sha256(targets[0].patchedBytes),
+    fileHashes: Object.fromEntries(targets.map((patchTarget) => [patchTarget.filePath, sha256(patchTarget.patchedBytes)])),
   };
 }
 
@@ -567,6 +695,23 @@ function restoreBackups({ appAsarPath, infoPlistPath, codeSignaturePath, rootExe
   }
 }
 
+function tryRestoreBackups(args) {
+  try {
+    restoreBackups(args);
+    return "";
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+function patchFailure(error, restoreReason = "") {
+  return {
+    status: "error",
+    reason: error instanceof Error ? error.message : String(error),
+    restoreReason,
+  };
+}
+
 export function inspectCodexDesktopPatch({
   env = process.env,
   bridgeHome = defaultBridgeHome(env),
@@ -580,6 +725,7 @@ export function inspectCodexDesktopPatch({
   const state = readJson(patchStatePath(bridgeHome));
   const resolvedAsar = resolveAppAsar({ env, appAsarPath, appBundlePath, platform, state });
   const resolvedBundle = appBundleFromAsar(resolvedAsar) || resolveCodexApp({ env, appBundlePath, platform }) || state?.appBundlePath || "";
+  const macCodeSignature = inspectMacCodeSignature(resolvedBundle, platform);
 
   if (platform !== "darwin" && platform !== "win32" && !appAsarPath && !env.DSCB_CODEX_APP_ASAR) {
     return { status: "unsupported", appAsarPath: resolvedAsar, appBundlePath: resolvedBundle, state };
@@ -599,6 +745,7 @@ export function inspectCodexDesktopPatch({
       managedBackup: Boolean(state?.active && state?.appAsarBackupPath && fs.existsSync(state.appAsarBackupPath)),
       managedCopy: Boolean(state?.managedCopy),
       launcherPath: state?.launcherPath || "",
+      macCodeSignature,
       state,
     };
   } catch (error) {
@@ -607,6 +754,7 @@ export function inspectCodexDesktopPatch({
       appAsarPath: resolvedAsar,
       appBundlePath: resolvedBundle,
       reason: error instanceof Error ? error.message : String(error),
+      macCodeSignature,
       state,
     };
   }
@@ -623,9 +771,12 @@ export function patchAsarModelPicker(appAsarPath) {
   return {
     status: "patched",
     filePath: target.filePath,
+    filePaths: target.filePaths || [target.filePath].filter(Boolean),
+    patchNames: target.patchNames || [],
     beforeHeaderHash,
     headerHash: hashes.headerHash,
     fileHash: hashes.fileHash,
+    fileHashes: hashes.fileHashes,
   };
 }
 
@@ -694,6 +845,8 @@ export function patchCodexDesktop({
       appAsarPath: resolvedAsar,
       appBundlePath: resolvedBundle,
       filePath: target.filePath,
+      filePaths: target.filePaths || [target.filePath].filter(Boolean),
+      patchNames: target.patchNames || [],
       managedCopy: Boolean(priorState?.managedCopy || managedCopy),
       launcherPath: priorState?.launcherPath || launcherPath,
     };
@@ -735,6 +888,8 @@ export function patchCodexDesktop({
         managedCopy,
         launcherPath,
         patchedFilePath: target.filePath,
+        patchedFilePaths: target.filePaths || [target.filePath].filter(Boolean),
+        patchNames: target.patchNames || [],
         originalAsarSha256,
         patchedAsarSha256: sha256File(resolvedAsar),
         originalHeaderHash: beforeHeaderHash,
@@ -745,15 +900,14 @@ export function patchCodexDesktop({
       writeJson(patchStatePath(bridgeHome), state);
       return { status: "patched", ...state };
     } catch (error) {
-      restoreBackups({
+      const restoreReason = tryRestoreBackups({
         appAsarPath: resolvedAsar,
         state: { appAsarBackupPath: backups.appAsarBackupPath },
       });
       return {
-        status: "error",
+        ...patchFailure(error, restoreReason),
         appAsarPath: resolvedAsar,
         appBundlePath: resolvedBundle,
-        reason: error instanceof Error ? error.message : String(error),
       };
     }
   }
@@ -828,6 +982,8 @@ export function patchCodexDesktop({
       codeSignatureBackupPath: backups.codeSignatureBackupPath,
       rootExecutableBackupPath: backups.rootExecutableBackupPath,
       patchedFilePath: target.filePath,
+      patchedFilePaths: target.filePaths || [target.filePath].filter(Boolean),
+      patchNames: target.patchNames || [],
       originalAsarSha256,
       patchedAsarSha256: sha256File(resolvedAsar),
       originalHeaderHash: beforeHeaderHash,
@@ -838,7 +994,7 @@ export function patchCodexDesktop({
     writeJson(patchStatePath(bridgeHome), state);
     return { status: "patched", ...state };
   } catch (error) {
-    restoreBackups({
+    const restoreReason = tryRestoreBackups({
       appAsarPath: resolvedAsar,
       infoPlistPath,
       codeSignaturePath,
@@ -851,10 +1007,9 @@ export function patchCodexDesktop({
       },
     });
     return {
-      status: "error",
+      ...patchFailure(error, restoreReason),
       appAsarPath: resolvedAsar,
       appBundlePath: resolvedBundle,
-      reason: error instanceof Error ? error.message : String(error),
     };
   }
 }

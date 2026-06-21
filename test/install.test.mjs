@@ -46,7 +46,7 @@ test("configureCodex writes one managed block and the two-model catalog", () => 
   assert.equal((config.match(/# >>> codex-deepseek-bridge/g) || []).length, 1);
   assert.match(config, /^model = "deepseek-pro"$/m);
   assert.match(config, /^model_provider = "deepseek_bridge"$/m);
-  assert.match(config, /^model_reasoning_effort = "high"$/m);
+  assert.match(config, /^model_reasoning_effort = "xhigh"$/m);
   assert.match(config, /\[model_providers\.deepseek_bridge\]/);
   assert.match(config, /^requires_openai_auth = false$/m);
   // No legacy named-profile file is created.
@@ -210,7 +210,7 @@ test("does not reparent user root keys under the managed provider table", () => 
   assert.doesNotMatch(config, /^model = "gpt-5.5"$/m);
   // model_reasoning_effort appears exactly once (no duplicate-key TOML error).
   assert.equal((config.match(/^model_reasoning_effort = /gm) || []).length, 1);
-  assert.match(config, /^model_reasoning_effort = "high"$/m);
+  assert.match(config, /^model_reasoning_effort = "xhigh"$/m);
 
   // CRITICAL: the user's other root keys stay at ROOT, not under the provider table.
   for (const key of ["disable_response_storage", "sandbox_mode", "approval_policy", "notify", "model_context_window"]) {

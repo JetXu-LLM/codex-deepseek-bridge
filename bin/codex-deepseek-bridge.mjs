@@ -48,7 +48,7 @@ Usage:
   codex-deepseek-bridge start [--port 8787]
   codex-deepseek-bridge report
   codex-deepseek-bridge doctor [--live]
-  codex-deepseek-bridge restore [--from-backup <path>] [--logout]
+  codex-deepseek-bridge restore [--from-backup <path>] [--logout] [--purge]
   codex-deepseek-bridge upgrade [--check] [--yes] [--rollback]
   codex-deepseek-bridge version
   codex-deepseek-bridge status
@@ -219,7 +219,7 @@ function setupSuccessMessage(result, started) {
     : "Start the bridge with: codex-deepseek-bridge start";
   const modelLine = catalogIncludesFlash(result)
     ? "Next: restart Codex, then pick deepseek-pro or deepseek-flash."
-    : "Next: restart Codex. Codex is configured for deepseek-pro; deepseek-flash is enabled only when the Desktop picker patch is active.";
+    : "Next: restart Codex. Codex is configured for deepseek-pro; deepseek-flash is enabled only when the Desktop compatibility patch is active.";
   if (loginMode === "chatgpt") {
     return [
       "Configured Codex for DeepSeek. Your ChatGPT login was left unchanged.",
@@ -261,33 +261,35 @@ function desktopPatchLine(result) {
   const launcher = result?.launcherPath ? ` Use the managed Windows launcher: ${result.launcherPath}` : "";
   switch (result?.status) {
     case "patched":
-      return `Codex Desktop model picker patch: applied. Restore will undo it.${launcher}`;
+      return `Codex Desktop compatibility patch: applied. Restore will undo it.${launcher}`;
     case "already-patched":
-      return `Codex Desktop model picker patch: already applied.${launcher}`;
+      return `Codex Desktop compatibility patch: already applied.${launcher}`;
     case "disabled":
-      return "Codex Desktop model picker patch: skipped.";
+      return "Codex Desktop compatibility patch: skipped.";
     case "needs-consent":
-      return "Codex Desktop model picker patch: skipped. Run setup --desktop-patch to apply it explicitly.";
+      return "Codex Desktop compatibility patch: skipped. Run setup --desktop-patch to apply it explicitly.";
     case "unsupported":
-      return "Codex Desktop model picker patch: not supported on this platform.";
+      return "Codex Desktop compatibility patch: not supported on this platform.";
     case "missing":
-      return "Codex Desktop model picker patch: Codex Desktop app was not found.";
+      return "Codex Desktop compatibility patch: Codex Desktop app was not found.";
     case "not-writable":
-      return "Codex Desktop model picker patch: skipped because Codex.app is not writable.";
+      return "Codex Desktop compatibility patch: skipped because Codex.app is not writable. Grant your terminal access to modify Codex.app, then re-run setup --desktop-patch.";
     case "target-not-found":
-      return "Codex Desktop model picker patch: skipped because this Codex Desktop build was not recognized.";
+      return "Codex Desktop compatibility patch: skipped because this Codex Desktop build was not recognized.";
     case "ambiguous":
-      return "Codex Desktop model picker patch: skipped because the Desktop bundle matched more than once.";
+      return "Codex Desktop compatibility patch: skipped because the Desktop bundle matched more than once.";
     case "missing-info-plist":
     case "missing-code-signature":
     case "missing-root-executable":
-      return "Codex Desktop model picker patch: skipped because the Codex Desktop app bundle is incomplete.";
+      return "Codex Desktop compatibility patch: skipped because the Codex Desktop app bundle is incomplete.";
     case "error":
-      return `Codex Desktop model picker patch: failed (${result.reason || "unknown error"}).`;
+      return result.restoreReason
+        ? `Codex Desktop compatibility patch: failed (${result.reason || "unknown error"}; restore also failed: ${result.restoreReason}).`
+        : `Codex Desktop compatibility patch: failed (${result.reason || "unknown error"}).`;
     case "patchable":
-      return "Codex Desktop model picker patch: available. Run setup --desktop-patch to apply it explicitly.";
+      return "Codex Desktop compatibility patch: available. Run setup --desktop-patch to apply it explicitly.";
     default:
-      return "Codex Desktop model picker patch: unknown state.";
+      return "Codex Desktop compatibility patch: unknown state.";
   }
 }
 
@@ -315,6 +317,13 @@ function doctorDesktopPatchText(result) {
   }
 }
 
+function doctorSignatureLine(result) {
+  if (result?.macCodeSignature?.adhoc && result.managedBackup === false) {
+    return "Codex signature: local/ad-hoc and not managed by this bridge state. If Codex keeps asking for Keychain access, reinstall or update Codex to restore the official signature.";
+  }
+  return "";
+}
+
 async function maybePatchCodexDesktop(args, env, bridgeHome) {
   if (args["no-desktop-patch"] === true || env.DSCB_DESKTOP_PATCH === "off") {
     return { status: "disabled" };
@@ -339,9 +348,10 @@ async function cmdSetup(args, env, config) {
     return 0;
   }
 
-  const key = await resolveKey(args, env);
   const bridgeHome = defaultBridgeHome(env);
   const hasStoredKey = inspectCodexInstall({ env, bridgeHome }).keyStored;
+  const explicitKeySource = args["from-stdin"] === true || Boolean(env.DEEPSEEK_API_KEY);
+  const key = explicitKeySource || !hasStoredKey ? await resolveKey(args, env) : "";
   if (!key) {
     if (!hasStoredKey) {
       out("No DeepSeek API key was provided.");
@@ -468,7 +478,11 @@ async function cmdDoctor(args, env, config) {
 
   if (!healthOk) {
     out("Bridge: offline. Start it with: codex-deepseek-bridge start");
-    out(`Codex config: ${configState}. Codex login: ${login}. Desktop picker patch: ${doctorDesktopPatchText(desktopPatch)}.`);
+    out(`Codex config: ${configState}. Codex login: ${login}. Desktop compatibility patch: ${doctorDesktopPatchText(desktopPatch)}.`);
+    const signatureLine = doctorSignatureLine(desktopPatch);
+    if (signatureLine) {
+      out(signatureLine);
+    }
     return 1;
   }
 
@@ -503,8 +517,12 @@ async function cmdDoctor(args, env, config) {
   }
 
   out(
-    `Bridge: ok. DeepSeek key: ${keyState}. Codex config: ${configState}. Codex login: ${login}. Desktop picker patch: ${doctorDesktopPatchText(desktopPatch)}.`,
+    `Bridge: ok. DeepSeek key: ${keyState}. Codex config: ${configState}. Codex login: ${login}. Desktop compatibility patch: ${doctorDesktopPatchText(desktopPatch)}.`,
   );
+  const signatureLine = doctorSignatureLine(desktopPatch);
+  if (signatureLine) {
+    out(signatureLine);
+  }
   if (login === "api-key") {
     out(
       inspect.state?.historyPreserved
@@ -522,36 +540,53 @@ function withStoppedBridge(message, stopped) {
   return stopped?.stopped ? `${message} Stopped the bridge.` : message;
 }
 
+function purgeBridgeHome(bridgeHome) {
+  try {
+    fs.rmSync(bridgeHome, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function withPurgedBridgeHome(message, purged) {
+  return purged ? `${message} Removed bridge state, stored key, logs, and backups.` : message;
+}
+
 function cmdRestore(args, env, config) {
   const bridgeHome = defaultBridgeHome(env);
   const stopped = stopDaemon(config.pidFile);
   const result = restoreCodexConfig({ env, backupPath: args["from-backup"] || args.backup || "" });
   const desktopRestore = restoreCodexDesktopPatch({ env, bridgeHome });
+  const shouldPurge = args.purge === true;
 
   if (args.logout === true) {
     codexLogout();
     removeStoredKey(bridgeHome);
+    const purged = shouldPurge ? purgeBridgeHome(bridgeHome) : false;
     const message = desktopRestore.changed
       ? "Restored your previous Codex config and Desktop picker, then removed the API-key login plus stored DeepSeek key. Restart Codex."
       : "Restored your previous Codex config and removed the API-key login plus stored DeepSeek key. Restart Codex.";
-    out(withStoppedBridge(message, stopped));
+    out(withPurgedBridgeHome(withStoppedBridge(message, stopped), purged));
     return 0;
   }
   if (!result.changed && !desktopRestore.changed) {
-    out(withStoppedBridge("No bridge config found. Nothing to restore.", stopped));
+    const purged = shouldPurge ? purgeBridgeHome(bridgeHome) : false;
+    out(withPurgedBridgeHome(withStoppedBridge("No bridge config found. Nothing to restore.", stopped), purged));
     return 0;
   }
+  const purged = shouldPurge ? purgeBridgeHome(bridgeHome) : false;
   if (desktopRestore.status === "signature-repaired") {
     const message = result.changed
       ? "Restored your previous Codex config and repaired the Codex Desktop app signature. Restart Codex to apply."
       : "Repaired the Codex Desktop app signature. Restart Codex to apply.";
-    out(withStoppedBridge(message, stopped));
+    out(withPurgedBridgeHome(withStoppedBridge(message, stopped), purged));
   } else if (desktopRestore.changed && result.changed) {
-    out(withStoppedBridge("Restored your previous Codex config and Desktop picker. Restart Codex to apply.", stopped));
+    out(withPurgedBridgeHome(withStoppedBridge("Restored your previous Codex config and Desktop picker. Restart Codex to apply.", stopped), purged));
   } else if (desktopRestore.changed) {
-    out(withStoppedBridge("Restored the Codex Desktop picker. Restart Codex to apply.", stopped));
+    out(withPurgedBridgeHome(withStoppedBridge("Restored the Codex Desktop picker. Restart Codex to apply.", stopped), purged));
   } else {
-    out(withStoppedBridge("Restored your previous Codex config. Restart Codex to apply.", stopped));
+    out(withPurgedBridgeHome(withStoppedBridge("Restored your previous Codex config. Restart Codex to apply.", stopped), purged));
   }
   return 0;
 }

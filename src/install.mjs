@@ -432,7 +432,7 @@ export function configureCodex({
   model = DEFAULT_CODEX_MODEL,
   host = "127.0.0.1",
   port = 8787,
-  reasoningEffort = "high",
+  reasoningEffort = "xhigh",
   vision = false,
   includeFlash = true,
   installMethod = "source",

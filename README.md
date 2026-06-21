@@ -2,19 +2,19 @@
 
 Use DeepSeek inside the OpenAI Codex app through a tiny local Responses-compatible bridge.
 
-For the full Desktop picker experience, run setup with the explicit Desktop patch opt-in. Codex
-then shows `deepseek-pro` and `deepseek-flash` in the model picker. Without that opt-in, the bridge
-uses the official config path only and publishes `deepseek-pro`.
+By default, setup uses Codex's official config path and publishes `deepseek-pro`. If you explicitly
+opt in to the Desktop compatibility patch, Codex also shows `deepseek-flash` in the model picker and
+keeps provider-scoped local history visible in more Desktop builds.
 
 ## Quick Start
 
 ### macOS Apple Silicon
 
 ```bash
-curl -L -o codex-deepseek-bridge-macos-arm64 https://github.com/JetXu-LLM/codex-deepseek-bridge/releases/latest/download/codex-deepseek-bridge-macos-arm64
-xattr -d com.apple.quarantine ./codex-deepseek-bridge-macos-arm64 2>/dev/null || true
-chmod +x ./codex-deepseek-bridge-macos-arm64
-./codex-deepseek-bridge-macos-arm64 setup --desktop-patch
+curl -L -o codex-deepseek-bridge-macos https://github.com/JetXu-LLM/codex-deepseek-bridge/releases/latest/download/codex-deepseek-bridge-macos
+xattr -d com.apple.quarantine ./codex-deepseek-bridge-macos 2>/dev/null || true
+chmod +x ./codex-deepseek-bridge-macos
+./codex-deepseek-bridge-macos setup
 ```
 
 ### macOS Intel
@@ -23,28 +23,27 @@ chmod +x ./codex-deepseek-bridge-macos-arm64
 curl -L -o codex-deepseek-bridge-macos-x64 https://github.com/JetXu-LLM/codex-deepseek-bridge/releases/latest/download/codex-deepseek-bridge-macos-x64
 xattr -d com.apple.quarantine ./codex-deepseek-bridge-macos-x64 2>/dev/null || true
 chmod +x ./codex-deepseek-bridge-macos-x64
-./codex-deepseek-bridge-macos-x64 setup --desktop-patch
+./codex-deepseek-bridge-macos-x64 setup
 ```
 
 ### Windows PowerShell
 
 ```powershell
 Invoke-WebRequest -Uri "https://github.com/JetXu-LLM/codex-deepseek-bridge/releases/latest/download/codex-deepseek-bridge-win-x64.exe" -OutFile ".\codex-deepseek-bridge-win-x64.exe"
-.\codex-deepseek-bridge-win-x64.exe setup --desktop-patch
+.\codex-deepseek-bridge-win-x64.exe setup
 ```
 
 `setup` asks for your DeepSeek API key in the terminal. The key is not echoed, printed, logged, or
 accepted as a command-line argument. After setup finishes, restart Codex.
 
-If you do not want to patch Codex Desktop app files, run `setup` without `--desktop-patch`. That
-mode keeps Codex on `deepseek-pro`; the picker may show `Custom` until Codex Desktop fixes custom
-catalog rendering.
+Config-only setup keeps Codex on `deepseek-pro`; the picker may show `Custom` until Codex Desktop
+fixes custom catalog rendering.
 
 You can safely run setup again. For example, if you first ran `setup` and later decide you want the
 Desktop picker, run `setup --desktop-patch`; the bridge rewrites the same managed block and updates
 the catalog instead of duplicating config.
 
-## Desktop Picker Patch
+## Desktop Compatibility Patch
 
 Current Codex Desktop builds can load `model_catalog_json` on the app-server side while the Desktop
 renderer still filters custom models out of the visible picker. This is tracked in
@@ -52,13 +51,17 @@ renderer still filters custom models out of the visible picker. This is tracked 
 providers, existing chats, and the Desktop picker is
 [openai/codex#29156](https://github.com/openai/codex/issues/29156).
 
-The Desktop patch is an explicit local compatibility workaround. It modifies your local Codex
-Desktop app files so the picker honors the local catalog. It does not distribute a modified Codex
-app.
+The Desktop compatibility patch is an explicit local workaround. It modifies your local Codex
+Desktop app files so the picker honors the local catalog and the recent-thread list is not narrowed
+to the previous provider. It does not distribute a modified Codex app.
 
-![Codex Desktop picker showing DeepSeek Pro and DeepSeek Flash after the Desktop picker patch](docs/assets/codex-desktop-deepseek-picker-patched.jpg)
+![Codex Desktop picker showing DeepSeek Pro and DeepSeek Flash after the Desktop compatibility patch](docs/assets/codex-desktop-deepseek-picker-patched.jpg)
 
-The screenshot above requires `setup --desktop-patch`.
+The screenshot above requires:
+
+```bash
+./codex-deepseek-bridge-macos setup --desktop-patch
+```
 
 - macOS: patches `Codex.app/Contents/Resources/app.asar`, updates Electron ASAR integrity, and
   re-signs the local app bundle.
@@ -73,7 +76,14 @@ codex-deepseek-bridge restore
 ```
 
 If you used a downloaded binary and did not install it on your PATH, run the same binary with
-`restore`, for example `./codex-deepseek-bridge-macos-arm64 restore`.
+`restore`, for example `./codex-deepseek-bridge-macos restore`.
+
+Normal `restore` keeps the stored DeepSeek key, logs, and backups so setup can be re-run without
+pasting the key again. For a full local cleanup, use:
+
+```bash
+codex-deepseek-bridge restore --purge
+```
 
 ## What Happens
 
@@ -89,7 +99,7 @@ sequenceDiagram
   participant Config as ~/.codex/config.toml + models.json
   participant Server as Codex app-server
   participant UI as Codex Desktop UI
-  participant Gate as Desktop visible-model gate
+  participant Gate as Desktop visible-model/history gate
   participant Bridge as localhost bridge
   participant DS as DeepSeek API
 
@@ -97,13 +107,13 @@ sequenceDiagram
   Config->>Server: model=deepseek-pro, model_catalog_json
   Server-->>UI: returns DeepSeek catalog
   UI->>Gate: applies Desktop visible-model filter
-  Gate-->>UI: custom models may be hidden without patch
+  Gate-->>UI: custom models/history may be hidden without patch
   UI->>Bridge: /v1/responses
   Bridge->>DS: /chat/completions
 ```
 
-`setup --desktop-patch` changes only the local Desktop picker filter path. Model calls still go
-through the local bridge and then to DeepSeek.
+`setup --desktop-patch` changes only local Desktop renderer files. Model calls still go through the
+local bridge and then to DeepSeek.
 
 ## Login And History
 
@@ -153,7 +163,7 @@ If you prefer a global command and already have Node:
 
 ```bash
 npm install -g github:JetXu-LLM/codex-deepseek-bridge
-codex-deepseek-bridge setup --desktop-patch
+codex-deepseek-bridge setup
 ```
 
 ## Docs

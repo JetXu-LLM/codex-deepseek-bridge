@@ -21,9 +21,9 @@ requires clearing the quarantine attribute; Windows may warn through SmartScreen
 
 ```bash
 # macOS (Apple Silicon)
-xattr -d com.apple.quarantine ./codex-deepseek-bridge-macos-arm64 2>/dev/null
-chmod +x ./codex-deepseek-bridge-macos-arm64
-./codex-deepseek-bridge-macos-arm64 setup
+xattr -d com.apple.quarantine ./codex-deepseek-bridge-macos 2>/dev/null
+chmod +x ./codex-deepseek-bridge-macos
+./codex-deepseek-bridge-macos setup
 ```
 
 ```powershell
@@ -61,7 +61,7 @@ codex-deepseek-bridge start
 `start` is idempotent: if the bridge is already running it reports the port and exits. `restore`
 stops the background bridge process after restoring Codex config and any managed Desktop patch.
 
-## Desktop picker patch
+## Desktop compatibility patch
 
 Current Codex Desktop builds may hide custom catalog models behind a remote allowlist even after the
 app-server returns the DeepSeek catalog. This is tracked upstream in
@@ -71,7 +71,8 @@ setup publishes `deepseek-pro` only. With the patch active, setup publishes `dee
 
 Plain `setup` skips the reversible local picker patch and publishes `deepseek-pro` only. Apply the
 patch explicitly with `setup --desktop-patch` or `DSCB_DESKTOP_PATCH=on`. The patch makes the picker
-use the local catalog's `hidden` flag instead of that allowlist gate.
+use the local catalog's `hidden` flag instead of that allowlist gate. It also relaxes Desktop's
+recent-thread provider filter so local history remains visible across provider-compatible setups.
 
 On macOS, the patch touches:
 
@@ -124,6 +125,10 @@ DSCB_DESKTOP_PATCH=off codex-deepseek-bridge setup
 - `<bridgeHome>/bridge.pid`, `bridge.stdout.log`, `bridge.stderr.log` — daemon bookkeeping.
 
 `<bridgeHome>` defaults to `<CODEX_HOME>/codex-deepseek-bridge`.
+
+Normal `restore` keeps `<bridgeHome>` so the stored key, logs, and backups are available for the next
+setup run. `restore --purge` removes `<bridgeHome>` after restoring Codex config and any managed
+Desktop patch.
 
 ## Ports
 

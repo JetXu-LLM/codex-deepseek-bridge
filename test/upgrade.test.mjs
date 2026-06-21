@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { assetUrl, downloadVerifiedAsset, releaseAssetName, sha256 } from "../src/upgrade.mjs";
 
 test("releaseAssetName maps the shipped targets only", () => {
-  assert.equal(releaseAssetName("darwin", "arm64"), "codex-deepseek-bridge-macos-arm64");
+  assert.equal(releaseAssetName("darwin", "arm64"), "codex-deepseek-bridge-macos");
   assert.equal(releaseAssetName("darwin", "x64"), "codex-deepseek-bridge-macos-x64");
   assert.equal(releaseAssetName("win32", "x64"), "codex-deepseek-bridge-win-x64.exe");
   assert.equal(releaseAssetName("linux", "x64"), null);
@@ -11,8 +11,8 @@ test("releaseAssetName maps the shipped targets only", () => {
 
 test("assetUrl points at the tagged GitHub release asset", () => {
   assert.equal(
-    assetUrl("JetXu-LLM/codex-deepseek-bridge", "2.0.0", "codex-deepseek-bridge-macos-arm64"),
-    "https://github.com/JetXu-LLM/codex-deepseek-bridge/releases/download/v2.0.0/codex-deepseek-bridge-macos-arm64",
+    assetUrl("JetXu-LLM/codex-deepseek-bridge", "2.0.0", "codex-deepseek-bridge-macos"),
+    "https://github.com/JetXu-LLM/codex-deepseek-bridge/releases/download/v2.0.0/codex-deepseek-bridge-macos",
   );
 });
 

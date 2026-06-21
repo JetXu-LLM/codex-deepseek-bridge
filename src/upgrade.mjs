@@ -10,7 +10,7 @@ export function releaseAssetName(platform = process.platform, arch = process.arc
     return "codex-deepseek-bridge-win-x64.exe";
   }
   if (platform === "darwin") {
-    return arch === "arm64" ? "codex-deepseek-bridge-macos-arm64" : "codex-deepseek-bridge-macos-x64";
+    return arch === "arm64" ? "codex-deepseek-bridge-macos" : "codex-deepseek-bridge-macos-x64";
   }
   return null;
 }

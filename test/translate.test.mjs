@@ -29,6 +29,37 @@ test("wraps Codex custom freeform tools as function tools", () => {
   assert.deepEqual(registry.chatTools[0].function.parameters.required, ["input"]);
 });
 
+test("preserves namespace separators for MCP and plugin tools", () => {
+  const registry = buildToolRegistry([
+    {
+      type: "namespace",
+      name: "mcp__node_repl",
+      tools: [{ type: "function", name: "js", parameters: { type: "object", properties: {} } }],
+    },
+    {
+      type: "namespace",
+      name: "mcp__computer_use",
+      tools: [{ type: "function", name: "list_apps", parameters: { type: "object", properties: {} } }],
+    },
+  ]);
+
+  assert.deepEqual(
+    registry.chatTools.map((tool) => tool.function.name),
+    ["mcp__node_repl__js", "mcp__computer_use__list_apps"],
+  );
+
+  const items = convertDeepSeekMessageToItems(
+    {
+      tool_calls: [
+        { id: "call_1", type: "function", function: { name: "mcp__node_repl__js", arguments: "{\"code\":\"1+1\"}" } },
+      ],
+    },
+    registry,
+  );
+  assert.equal(items[1].type, "function_call");
+  assert.equal(items[1].name, "mcp__node_repl__js");
+});
+
 test("builds DeepSeek request from Responses input and tools", () => {
   const request = {
     model: "deepseek-pro",
@@ -113,8 +144,8 @@ test("model catalog exposes exactly two slugs and three reasoning efforts", () =
   assert.equal(catalog.models[0].display_name, "DeepSeek Pro");
   assert.equal(catalog.models[0].displayName, "DeepSeek Pro");
   assert.equal(catalog.models[1].display_name, "DeepSeek Flash");
-  assert.equal(catalog.models[0].default_reasoning_level, "high");
-  assert.equal(catalog.models[0].defaultReasoningEffort, "high");
+  assert.equal(catalog.models[0].default_reasoning_level, "xhigh");
+  assert.equal(catalog.models[0].defaultReasoningEffort, "xhigh");
   assert.deepEqual(
     catalog.models[0].supported_reasoning_levels.map((entry) => entry.effort),
     ["none", "high", "xhigh"],

@@ -27,7 +27,7 @@ export function buildManagedConfigBlock({
   providerMode = PROVIDER_MODE_CUSTOM,
   baseUrl = "http://127.0.0.1:8787/v1",
   catalogPath,
-  reasoningEffort = "high",
+  reasoningEffort = "xhigh",
   requiresOpenAiAuth = false,
 } = {}) {
   const lines = [

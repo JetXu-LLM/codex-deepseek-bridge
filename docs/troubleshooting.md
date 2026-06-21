@@ -25,24 +25,26 @@ DeepSeek catalog correctly, but the renderer may still filter out custom models,
 `Custom`. This is tracked upstream in [openai/codex#19694](https://github.com/openai/codex/issues/19694).
 
 Without the Desktop patch, setup intentionally publishes `deepseek-pro` only. `deepseek-flash` is
-published only when the Desktop picker patch is active.
+published only when the Desktop compatibility patch is active.
 
-Plain `setup` leaves the Desktop app untouched. To apply the reversible local picker patch, run:
+Plain `setup` leaves the Desktop app untouched. To apply the reversible local Desktop compatibility
+patch, run:
 
 ```bash
 codex-deepseek-bridge setup --desktop-patch
 codex-deepseek-bridge doctor
 ```
 
-`doctor` should report `Desktop picker patch: patched`. If it says
+`doctor` should report `Desktop compatibility patch: patched`. If it says
 `unrecognized Desktop build`, your Codex Desktop version changed enough that the bridge refused to
 patch it. Open an issue with the Codex version and the `doctor` output.
 
 On Windows Store installs, setup may print a managed launcher path. Use that launcher to open the
 patched copy; the normal Windows Store shortcut still opens the unpatched app.
 
-If you want to undo everything, run `codex-deepseek-bridge restore`; it restores Codex config,
-restores the Desktop picker patch when present, and stops the bridge. Then restart Codex.
+If you want to undo the active setup, run `codex-deepseek-bridge restore`; it restores Codex config,
+restores the Desktop patch when present, stops the bridge, and keeps the local DeepSeek key for a
+future setup run. For a full local cleanup, run `codex-deepseek-bridge restore --purge`.
 
 On macOS, maintainers can verify the exact desktop app-server response with:
 
@@ -111,6 +113,20 @@ that key still exists.
 If you only ran `restore` and did not use `restore --logout`, the stored DeepSeek key remains on this
 machine. Running `setup` again can reuse it without asking you to paste the key again.
 
+## MCP or plugin tools say `unsupported call`
+
+Upgrade to `0.1.14` or newer. Older bridge builds flattened namespace tools without the separator
+Codex expects, so calls such as `mcp__node_repl__js` could be returned as `mcp__node_repljs`. The
+tools were present and sent to DeepSeek, but Codex rejected the malformed returned tool name.
+
+## macOS asks for the `Codex Storage Key` password
+
+Run `codex-deepseek-bridge doctor`. If it says the Codex signature is `local/ad-hoc` and not managed
+by this bridge state, Codex.app has already lost its original official signing identity. A normal
+bridge restore can only restore backups that still exist and still contain the original signature.
+If the app keeps asking for Keychain access after restore, reinstall or update Codex from the
+official source to restore the official signature.
+
 ## The bridge stopped after a reboot (Windows)
 
 The background process does not survive a reboot or a new login on Windows. Start it again:
@@ -126,8 +142,8 @@ Tip: star the repo so the command is easy to find later.
 Unsigned binaries trigger Gatekeeper. Clear the quarantine attribute and make it executable:
 
 ```bash
-xattr -d com.apple.quarantine ./codex-deepseek-bridge-macos-arm64 2>/dev/null
-chmod +x ./codex-deepseek-bridge-macos-arm64
+xattr -d com.apple.quarantine ./codex-deepseek-bridge-macos 2>/dev/null
+chmod +x ./codex-deepseek-bridge-macos
 ```
 
 You can also right-click the binary in Finder and choose **Open** once.
@@ -139,12 +155,12 @@ published `.sha256` if you want extra assurance.
 
 ## Choosing model and reasoning
 
-Config-only setup uses `deepseek-pro`. With the Desktop picker patch active, the picker also shows
-`deepseek-flash` (faster, cheaper). Each model has three reasoning levels:
+Config-only setup uses `deepseek-pro`. With the Desktop compatibility patch active, the picker also
+shows `deepseek-flash` (faster, cheaper). Each model has three reasoning levels:
 
 - **none** — no thinking, fastest.
-- **high** — DeepSeek thinking (default).
-- **xhigh** — DeepSeek maximum thinking.
+- **high** — DeepSeek thinking.
+- **xhigh** — DeepSeek maximum thinking (default).
 
 ## Cache hit rate is lower than expected
 
@@ -158,6 +174,7 @@ likely cause. The bridge does not rewrite prompts; it reports so you can diagnos
 ```bash
 codex-deepseek-bridge restore           # restore config/picker patch and stop the bridge
 codex-deepseek-bridge restore --logout  # also remove an API-key login from older bridge setups
+codex-deepseek-bridge restore --purge   # also remove bridge state, key, logs, and backups
 ```
 
 Then restart Codex.

@@ -27,7 +27,7 @@ function assetName() {
     return "codex-deepseek-bridge-win-x64.exe";
   }
   if (platform === "darwin") {
-    return `codex-deepseek-bridge-macos-${arch}`;
+    return arch === "arm64" ? "codex-deepseek-bridge-macos" : "codex-deepseek-bridge-macos-x64";
   }
   return `codex-deepseek-bridge-${platform}-${arch}`;
 }

@@ -72,6 +72,8 @@ The patch is conservative:
 - It is skipped with `DSCB_DESKTOP_PATCH=off`.
 - It requires `setup --desktop-patch` or `DSCB_DESKTOP_PATCH=on`.
 - It only applies when the known picker filter appears exactly once.
+- It also patches known recent-thread provider filters from `modelProviders:null` to an unfiltered
+  provider list so local history remains visible across compatible provider switches.
 - On macOS, it updates the ASAR file integrity metadata in `Info.plist`.
 - On macOS, it re-signs the local Codex app bundle after patching, without deep-signing nested code.
 - On macOS, it backs up the root executable too, because signing can rewrite its embedded signature.
@@ -94,7 +96,7 @@ Windows), after backing up any existing file. Config-only mode writes a one-mode
 model = "deepseek-pro"
 model_provider = "deepseek_bridge"
 model_catalog_json = "<bridgeHome>/models.json"
-model_reasoning_effort = "high"
+model_reasoning_effort = "xhigh"
 
 [model_providers.deepseek_bridge]
 name = "DeepSeek (via Codex DeepSeek Bridge)"
@@ -104,7 +106,7 @@ requires_openai_auth = false
 # <<< codex-deepseek-bridge
 ```
 
-When the Desktop picker patch is active, `models.json` also includes `deepseek-flash`.
+When the Desktop compatibility patch is active, `models.json` also includes `deepseek-flash`.
 
 `setup` may choose a different provider strategy to preserve local history. Current Codex Desktop
 builds scope local thread history by provider id, so setup first looks at the original config and
@@ -146,8 +148,8 @@ Each model exposes three reasoning efforts:
 | Codex effort | DeepSeek request |
 | --- | --- |
 | `none` | `thinking: { type: "disabled" }` |
-| `high` (default) | `thinking: { type: "enabled" }`, `reasoning_effort: "high"` |
-| `xhigh` | `thinking: { type: "enabled" }`, `reasoning_effort: "max"` |
+| `high` | `thinking: { type: "enabled" }`, `reasoning_effort: "high"` |
+| `xhigh` (default) | `thinking: { type: "enabled" }`, `reasoning_effort: "max"` |
 
 Any other effort folds to the nearest of the three (`minimal`→`none`; `low`/`medium`→`high`;
 `max`→`xhigh`).
@@ -167,7 +169,10 @@ bearer gates the bridge and the upstream key must come from steps 1–2.
 
 - Codex freeform custom tools (such as `apply_patch`) wrap as `{ "input": "..." }` upstream and
   unwrap to a Codex `custom_tool_call`.
-- Function and namespace tools pass through.
+- Function tools pass through.
+- Namespace tools keep Codex's double-underscore separator (for example,
+  `mcp__node_repl` + `js` becomes `mcp__node_repl__js`) so Codex can route returned MCP and plugin
+  tool calls.
 - DeepSeek thinking returns `reasoning_content`; the bridge carries it as opaque Codex reasoning
   state for multi-turn continuity. It is compatibility state, not encryption.
 - Usage mapping includes DeepSeek cache fields and `input_tokens_details.cached_tokens`.

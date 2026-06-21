@@ -68,11 +68,11 @@ export function catalogModels({ vision = false, includeFlash = true } = {}) {
 
 function reasoningMetadata() {
   return {
-    default_reasoning_level: "high",
+    default_reasoning_level: "xhigh",
     supported_reasoning_levels: REASONING_EFFORTS.map(({ effort, description }) => ({ effort, description })),
     default_reasoning_summary: "auto",
     supports_reasoning_summaries: true,
-    defaultReasoningEffort: "high",
+    defaultReasoningEffort: "xhigh",
     supportedReasoningEfforts: REASONING_EFFORTS.map(({ reasoningEffort, description }) => ({
       reasoningEffort,
       description,

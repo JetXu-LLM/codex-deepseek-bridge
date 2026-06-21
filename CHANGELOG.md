@@ -5,6 +5,36 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.14
+
+Fixes the macOS test regressions and makes Desktop patching more honest.
+
+### Added
+
+- `restore --purge` restores Codex, stops the bridge, and then removes bridge state, the stored
+  DeepSeek key, logs, and Desktop compatibility patch backups.
+- The Desktop compatibility patch now also relaxes known recent-thread provider filters so local
+  history stays visible across compatible provider switches.
+
+### Fixed
+
+- `setup` now checks for an existing stored DeepSeek key before prompting. A normal `restore` keeps
+  the key, so re-running `setup` no longer asks for it again unless a new key is supplied through
+  `--from-stdin` or `DEEPSEEK_API_KEY`.
+- MCP and plugin namespace tool names now keep Codex's double-underscore separator. Older builds
+  could return names such as `mcp__node_repljs`, which Codex rejected as `unsupported call`.
+- Desktop compatibility patch failures now report a readable error even when the attempted automatic
+  restore is also blocked by OS permissions.
+
+### Changed
+
+- New setups default `model_reasoning_effort` and catalog defaults to `xhigh`, which maps to
+  DeepSeek `reasoning_effort=max`.
+- Quick Start now uses config-only `setup` by default. `setup --desktop-patch` remains an explicit
+  opt-in because it modifies local Codex Desktop app files.
+- The Apple Silicon binary asset is now `codex-deepseek-bridge-macos`; the Intel macOS asset remains
+  `codex-deepseek-bridge-macos-x64`.
+
 ## 0.1.13
 
 Keeps repeat setup runs on the expected local port.
@@ -43,7 +73,7 @@ Polishes the Windows/Desktop-patch release and the direct user setup path.
 
 ### Changed
 
-- Plain `setup` no longer prompts to patch Codex Desktop app files. The Desktop picker patch now
+- Plain `setup` no longer prompts to patch Codex Desktop app files. The Desktop compatibility patch now
   requires explicit opt-in with `setup --desktop-patch` or `DSCB_DESKTOP_PATCH=on`.
 - README now leads with direct macOS and Windows download-and-run commands, documents the upstream
   Codex Desktop custom-model issues, and explains config-only versus Desktop-patched behavior.
@@ -66,7 +96,7 @@ Adds a safer Desktop patch rollout model and Windows picker-patch support.
 ### Changed
 
 - Config-only setup now publishes only `deepseek-pro`. `deepseek-flash` is published only when the
-  Desktop picker patch is active.
+  Desktop compatibility patch is active.
 - The running `/v1/models` endpoint follows the same active catalog so config-only mode exposes only
   `deepseek-pro`.
 - README now leads with direct setup commands instead of the old paste-a-prompt flow, and documents
@@ -127,11 +157,12 @@ Fixes the current macOS Codex Desktop picker filter for custom catalog models.
   is found. It requires confirmation, `setup --desktop-patch`, or `DSCB_DESKTOP_PATCH=on`, then backs
   up `app.asar`, `Info.plist`, `_CodeSignature`, and the root executable, updates Electron's ASAR
   integrity hash, and re-signs the app.
-- `restore` now also restores the Codex Desktop picker patch, so a normal restore returns both
+- `restore` now also restores the Codex Desktop compatibility patch, so a normal restore returns both
   `config.toml` and the local app bundle to the previous state.
 - `restore` verifies the restored macOS app bundle and performs a local root-bundle re-sign if an
   older patch state cannot restore a valid signature directly.
-- `doctor` reports the Desktop picker patch state alongside bridge, key, config, and login status.
+- `doctor` reports the Desktop compatibility patch state alongside bridge, key, config, and login
+  status.
 
 ### Changed
 

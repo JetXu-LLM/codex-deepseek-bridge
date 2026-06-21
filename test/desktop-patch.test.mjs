@@ -34,27 +34,40 @@ function entryFor(content) {
 }
 
 function writeFakeAsar(file, source) {
-  const content = Buffer.from(source, "utf8");
+  writeFakeAsarFiles(file, { "webview/assets/model-list-filter-test.js": source });
+}
+
+function setHeaderEntry(header, entryPath, entry) {
+  let node = header;
+  const parts = entryPath.split("/");
+  for (const part of parts.slice(0, -1)) {
+    node.files ||= {};
+    node.files[part] ||= { files: {} };
+    node = node.files[part];
+  }
+  node.files ||= {};
+  node.files[parts.at(-1)] = entry;
+}
+
+function writeFakeAsarFiles(file, sources) {
   const header = {
-    files: {
-      webview: {
-        files: {
-          assets: {
-            files: {
-              "model-list-filter-test.js": entryFor(content),
-            },
-          },
-        },
-      },
-    },
+    files: {},
   };
+  const contents = [];
+  let offset = 0;
+  for (const [entryPath, source] of Object.entries(sources)) {
+    const content = Buffer.from(source, "utf8");
+    setHeaderEntry(header, entryPath, { ...entryFor(content), offset: String(offset) });
+    contents.push(content);
+    offset += content.length;
+  }
   const headerBytes = Buffer.from(JSON.stringify(header), "utf8");
   const prefix = Buffer.alloc(16);
   prefix.writeUInt32LE(4, 0);
   prefix.writeUInt32LE(headerBytes.length + 8, 4);
   prefix.writeUInt32LE(headerBytes.length + 4, 8);
   prefix.writeUInt32LE(headerBytes.length, 12);
-  fs.writeFileSync(file, Buffer.concat([prefix, headerBytes, content]));
+  fs.writeFileSync(file, Buffer.concat([prefix, headerBytes, ...contents]));
 }
 
 function writeFakeBundle(root, source) {
@@ -120,6 +133,25 @@ test("patchAsarModelPicker disables the Desktop hidden-model allowlist and updat
 
   const second = patchAsarModelPicker(appAsar);
   assert.equal(second.status, "patched");
+});
+
+test("patchAsarModelPicker also unfilters recent history provider lists", () => {
+  const root = tempRoot();
+  const appAsar = path.join(root, "app.asar");
+  writeFakeAsarFiles(appAsar, {
+    "webview/assets/model-list-filter-test.js":
+      "function e({authMethod:e,availableModels:t,defaultModel:n,models:r,useHiddenModels:i}){let a=[],o=null,s=i&&e!==`amazonBedrock`;return r.forEach(n=>{if(s?t.has(n.model):!n.hidden){a.push(n)}})}",
+    ".vite/build/main-test.js":
+      "async function recent(e){return e.listThreads({archived:!1,cursor:null,limit:200,modelProviders:null,sortKey:`updated_at`})}",
+  });
+
+  const result = patchAsarModelPicker(appAsar);
+  const bytes = fs.readFileSync(appAsar).toString("utf8");
+
+  assert.equal(result.status, "patched");
+  assert.deepEqual(result.patchNames.sort(), ["history-provider-filter", "model-picker"]);
+  assert.match(bytes, /,s=0&&e!==`amazonBedrock`;/);
+  assert.match(bytes, /modelProviders:\[\]  /);
 });
 
 test("inspectCodexDesktopPatch reports a patchable ASAR when an explicit path is supplied", () => {

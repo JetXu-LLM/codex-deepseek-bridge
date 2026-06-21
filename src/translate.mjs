@@ -29,6 +29,10 @@ export function sanitizeToolName(name, usedNames = new Set()) {
   return next;
 }
 
+function namespaceToolName(namespace, name) {
+  return `${String(namespace || "").replace(/_+$/, "")}__${String(name || "").replace(/^_+/, "")}`;
+}
+
 export function buildToolRegistry(responseTools = []) {
   const usedNames = new Set();
   const originalToSafe = new Map();
@@ -98,7 +102,7 @@ export function buildToolRegistry(responseTools = []) {
         if (nested?.type !== "function" || !nested.name) {
           continue;
         }
-        addTool(`${tool.name}${nested.name}`, {
+        addTool(namespaceToolName(tool.name, nested.name), {
           description: [tool.description, nested.description].filter(Boolean).join("\n\n"),
           parameters: nested.parameters,
           strict: nested.strict,
