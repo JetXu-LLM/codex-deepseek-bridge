@@ -111,11 +111,13 @@ test("model catalog exposes exactly two slugs and three reasoning efforts", () =
   assert.deepEqual(slugs, ["deepseek-pro", "deepseek-flash"]);
   assert.equal(catalog.models[0].display_name, "DeepSeek Pro");
   assert.equal(catalog.models[1].display_name, "DeepSeek Flash");
-  assert.equal(catalog.models[0].default_reasoning_effort, "high");
+  assert.equal(catalog.models[0].default_reasoning_level, "high");
   assert.deepEqual(
-    catalog.models[0].supported_reasoning_efforts.map((entry) => entry.effort),
+    catalog.models[0].supported_reasoning_levels.map((entry) => entry.effort),
     ["none", "high", "xhigh"],
   );
+  assert.equal("default_reasoning_effort" in catalog.models[0], false);
+  assert.equal("supported_reasoning_efforts" in catalog.models[0], false);
   assert.deepEqual(catalog.models[0].input_modalities, ["text"]);
 });
 

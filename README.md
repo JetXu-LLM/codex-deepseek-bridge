@@ -40,7 +40,7 @@ Steps:
 
 Then **restart Codex** and pick `deepseek-pro` or `deepseek-flash`.
 
-### Starting fresh? Two commands.
+### Starting fresh? Use the binary.
 
 No Node required. Download the binary for your computer:
 
@@ -53,27 +53,25 @@ No Node required. Download the binary for your computer:
 ```bash
 xattr -d com.apple.quarantine ./codex-deepseek-bridge-macos-arm64 2>/dev/null
 chmod +x ./codex-deepseek-bridge-macos-arm64
-printf '%s\n' 'YOUR_DEEPSEEK_API_KEY' | ./codex-deepseek-bridge-macos-arm64 setup --from-stdin
-./codex-deepseek-bridge-macos-arm64 start
+./codex-deepseek-bridge-macos-arm64 setup
 ```
 
 **Windows** (PowerShell, in your Downloads folder; if SmartScreen warns, choose "More info → Run
 anyway"):
 
 ```powershell
-'YOUR_DEEPSEEK_API_KEY' | .\codex-deepseek-bridge-win-x64.exe setup --from-stdin
-.\codex-deepseek-bridge-win-x64.exe start
+.\codex-deepseek-bridge-win-x64.exe setup
 ```
 
-Replace `YOUR_DEEPSEEK_API_KEY` with your key. Then **restart Codex**.
+`setup` asks you to paste your DeepSeek key into the terminal, configures Codex, and starts the
+bridge. The key is not echoed. Then **restart Codex**.
 
 <details>
 <summary>Have Node installed? Use npm instead.</summary>
 
 ```bash
 npm install -g codex-deepseek-bridge
-printf '%s\n' 'YOUR_DEEPSEEK_API_KEY' | codex-deepseek-bridge setup --from-stdin
-codex-deepseek-bridge start
+codex-deepseek-bridge setup
 ```
 
 Before the npm package is published, install from GitHub:

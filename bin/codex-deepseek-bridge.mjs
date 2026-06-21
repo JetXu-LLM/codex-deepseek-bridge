@@ -220,7 +220,8 @@ async function cmdSetup(args, env, config) {
   const key = await resolveKey(args, env);
   if (!key) {
     out("No DeepSeek API key was provided.");
-    out("Re-run and pipe your key in:  printf '%s\\n' 'YOUR_KEY' | codex-deepseek-bridge setup --from-stdin");
+    out("Re-run setup in a terminal: codex-deepseek-bridge setup");
+    out("It will ask you to paste your key without echoing it.");
     out("Your key is stored locally and never printed or committed.");
     return 0;
   }

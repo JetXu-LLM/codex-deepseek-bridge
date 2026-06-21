@@ -3,9 +3,9 @@
 Codex DeepSeek Bridge supports macOS and Windows. The flow is the same on both:
 
 1. Get the bridge (binary, npm, or the Path A prompt).
-2. Run `setup` with your DeepSeek key over stdin.
+2. Run `setup` and paste your DeepSeek key when the terminal asks for it.
 3. Restart Codex.
-4. Re-run `start` whenever you reopen your computer.
+4. Re-run `start` after a reboot or when the bridge is not running.
 
 ## Install methods
 
@@ -18,31 +18,29 @@ requires clearing the quarantine attribute; Windows may warn through SmartScreen
 # macOS (Apple Silicon)
 xattr -d com.apple.quarantine ./codex-deepseek-bridge-macos-arm64 2>/dev/null
 chmod +x ./codex-deepseek-bridge-macos-arm64
-printf '%s\n' 'YOUR_DEEPSEEK_API_KEY' | ./codex-deepseek-bridge-macos-arm64 setup --from-stdin
-./codex-deepseek-bridge-macos-arm64 start
+./codex-deepseek-bridge-macos-arm64 setup
 ```
 
 ```powershell
 # Windows (PowerShell). If SmartScreen warns: More info -> Run anyway.
-'YOUR_DEEPSEEK_API_KEY' | .\codex-deepseek-bridge-win-x64.exe setup --from-stdin
-.\codex-deepseek-bridge-win-x64.exe start
+.\codex-deepseek-bridge-win-x64.exe setup
 ```
 
 ### npm (if you have Node)
 
 ```bash
 npm install -g codex-deepseek-bridge
-printf '%s\n' 'YOUR_DEEPSEEK_API_KEY' | codex-deepseek-bridge setup --from-stdin
-codex-deepseek-bridge start
+codex-deepseek-bridge setup
 ```
 
 Before the npm package is published: `npm install -g github:JetXu-LLM/codex-deepseek-bridge`.
 
 ## The key is read from stdin
 
-`setup` reads the DeepSeek key from `--from-stdin` or the `DEEPSEEK_API_KEY` environment variable
-only. It is never accepted as a command-line argument and never printed, logged, or committed. The
-key is stored at `<bridgeHome>/deepseek-key` with owner-only permissions.
+Interactive `setup` asks you to paste your DeepSeek key into the terminal without echoing it.
+Automation can pass the key through `--from-stdin` or `DEEPSEEK_API_KEY`. The key is never accepted
+as a command-line argument and never printed, logged, or committed. It is stored at
+`<bridgeHome>/deepseek-key` with owner-only permissions.
 
 ## Starting the bridge again
 

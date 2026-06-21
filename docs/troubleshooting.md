@@ -29,10 +29,21 @@ codex-deepseek-bridge doctor --live
 ```
 
 - **Bridge offline** → start it: `codex-deepseek-bridge start`.
-- **Key rejected** → your DeepSeek key is wrong or missing. Re-run setup with the right key:
-  `printf '%s\n' 'YOUR_KEY' | codex-deepseek-bridge setup --from-stdin`.
+- **Key rejected** → your DeepSeek key is wrong or missing. Re-run `codex-deepseek-bridge setup`
+  and paste the right key when the terminal asks for it.
 - **DeepSeek returned an error status** → an upstream problem. Open the report for details:
   `http://127.0.0.1:8787/report`.
+
+## Codex says the model catalog is invalid
+
+Run:
+
+```bash
+codex debug models
+```
+
+If it mentions `supported_reasoning_levels`, upgrade to `0.1.2` or newer and re-run `setup`. Older
+bridge builds wrote the previous Codex catalog field names, so Codex ignored the DeepSeek picker.
 
 ## The bridge stopped after a reboot (Windows)
 

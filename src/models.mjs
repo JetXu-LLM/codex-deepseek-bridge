@@ -58,8 +58,8 @@ export function catalogModels({ vision = false } = {}) {
 
 function reasoningMetadata() {
   return {
-    default_reasoning_effort: "high",
-    supported_reasoning_efforts: [
+    default_reasoning_level: "high",
+    supported_reasoning_levels: [
       { effort: "none", description: "No thinking (fastest)" },
       { effort: "high", description: "DeepSeek thinking" },
       { effort: "xhigh", description: "DeepSeek maximum thinking" },

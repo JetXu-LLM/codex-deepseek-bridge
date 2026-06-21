@@ -5,6 +5,23 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.2
+
+Fixes the model catalog for current Codex builds.
+
+### Fixed
+
+- `models.json` now uses Codex's current reasoning catalog fields:
+  `default_reasoning_level` and `supported_reasoning_levels`. Older bridge builds wrote the previous
+  field names, so `codex debug models` rejected the catalog and the app kept showing GPT models.
+- Added regression coverage that rejects the old field names and verifies the three visible
+  reasoning levels: `none`, `high`, and `xhigh`.
+
+### Changed
+
+- Install docs now recommend interactive `setup`, where the terminal asks for the DeepSeek key
+  without echoing it. `--from-stdin` remains supported for automation.
+
 ## 0.1.1
 
 Fixes a config-writing bug that could corrupt `~/.codex/config.toml`.
