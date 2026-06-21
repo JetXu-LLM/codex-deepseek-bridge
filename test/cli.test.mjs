@@ -45,7 +45,7 @@ test("setup --from-stdin --no-start writes the managed block, catalog, and key",
   const config = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
   assert.match(config, /# >>> codex-deepseek-bridge/);
   assert.match(config, /^model = "deepseek-pro"$/m);
-  assert.match(config, /^model_provider = "codex"$/m);
+  assert.match(config, /^model_provider = "deepseek_bridge"$/m);
 
   const catalog = JSON.parse(fs.readFileSync(path.join(bridgeHome, "models.json"), "utf8"));
   assert.deepEqual(catalog.models.map((entry) => entry.slug), ["deepseek-pro", "deepseek-flash"]);

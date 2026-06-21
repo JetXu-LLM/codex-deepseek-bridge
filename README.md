@@ -96,10 +96,10 @@ install command above or the release binary.
 `setup` stores your DeepSeek key for the local bridge and leaves your Codex login alone.
 
 - **Signed in with ChatGPT?** Keep it. Your Codex history stays available while the model picker uses
-  the local DeepSeek catalog.
-- **Already in API-key login mode?** Keep it. Existing local Codex history stays visible because the
-  bridge uses Codex's local provider id while pointing that provider at DeepSeek. ChatGPT cloud-only
-  history still requires a ChatGPT sign-in.
+  the local DeepSeek catalog when that history is stored under the selected provider.
+- **Already in API-key login mode?** Keep it. `setup` reuses your existing non-reserved provider id
+  when it can, or uses the official `openai_base_url` path for OpenAI-provider history. ChatGPT
+  cloud-only history still requires a ChatGPT sign-in.
 - **Re-running after `restore`?** If you did not use `restore --logout`, the stored DeepSeek key is
   reused and setup does not ask for it again.
 
@@ -141,7 +141,8 @@ It is read-only and local. Prompt text is not stored.
 
 - DeepSeek in the Codex app on macOS and Windows.
 - Two clean models with three reasoning levels. `deepseek-pro` is the default.
-- Existing local API-key Codex history remains visible after setup.
+- Existing local Codex history remains visible when it can be safely inherited from the active or
+  dominant history provider.
 - An optional macOS Desktop picker patch for Codex builds that hide custom catalog models.
 - A local usage and cache report.
 - One-command upgrades.

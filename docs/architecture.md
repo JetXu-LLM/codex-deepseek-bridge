@@ -67,11 +67,11 @@ Windows), after backing up any existing file:
 # >>> codex-deepseek-bridge
 # Managed by codex-deepseek-bridge. Run `codex-deepseek-bridge restore` to undo.
 model = "deepseek-pro"
-model_provider = "codex"
+model_provider = "deepseek_bridge"
 model_catalog_json = "<bridgeHome>/models.json"
 model_reasoning_effort = "high"
 
-[model_providers.codex]
+[model_providers.deepseek_bridge]
 name = "DeepSeek (via Codex DeepSeek Bridge)"
 base_url = "http://127.0.0.1:8787/v1"
 wire_api = "responses"
@@ -79,10 +79,19 @@ requires_openai_auth = false
 # <<< codex-deepseek-bridge
 ```
 
-The bridge intentionally uses Codex's local `codex` provider id while it is active. Current Codex
-Desktop builds scope local thread history by provider id, so reusing that id keeps existing local
-API-key/GPT history visible while the provider's `base_url` points at the bridge. `restore` writes
-the original config back from the setup backup.
+`setup` may choose a different provider strategy to preserve local history. Current Codex Desktop
+builds scope local thread history by provider id, so setup first looks at the original config and
+the local thread database:
+
+- If the original or dominant history provider is non-reserved, such as `codex`, setup reuses that
+  provider id and writes a temporary `[model_providers.<id>]` table pointing at the bridge.
+- If the provider is the reserved built-in `openai`, setup uses the official `openai_base_url`
+  override instead of writing `[model_providers.openai]`.
+- If the provider is another reserved built-in id, or no useful history exists, setup uses the
+  independent `deepseek_bridge` provider shown above.
+
+`restore` writes the original config back from the setup backup, including any prior proxy base URL
+or provider table.
 
 `<bridgeHome>` defaults to `<CODEX_HOME>/codex-deepseek-bridge`. It also holds `models.json`,
 `deepseek-key`, `install-state.json`, and the daemon's pid and logs.

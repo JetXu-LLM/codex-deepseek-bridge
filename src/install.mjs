@@ -5,6 +5,9 @@ import {
   BRIDGE_PROVIDER_ID,
   MANAGED_BLOCK_END,
   MANAGED_BLOCK_START,
+  OPENAI_PROVIDER_ID,
+  PROVIDER_MODE_CUSTOM,
+  PROVIDER_MODE_OPENAI_BASE_URL,
   buildManagedConfigBlock,
   buildModelCatalog,
 } from "./catalog.mjs";
@@ -23,6 +26,14 @@ const MANAGED_ROOT_KEYS = new Set([
   "model_provider",
   "model_catalog_json",
   "model_reasoning_effort",
+  "openai_base_url",
+]);
+
+const RESERVED_PROVIDER_IDS = new Set([
+  OPENAI_PROVIDER_ID,
+  "ollama",
+  "lmstudio",
+  "amazon-bedrock",
 ]);
 
 function ensureDir(dir) {
@@ -129,7 +140,10 @@ function splitRootAndTables(text) {
 // table, then the user's tables. The managed block must never leave a table
 // open ahead of user root keys, or those keys get reparented under it.
 function placeManagedBlockFirst(existing, block, { provider = BRIDGE_PROVIDER_ID } = {}) {
-  const cleaned = removeProviderTable(removeManagedRootKeys(removeManagedBlock(existing)), provider);
+  let cleaned = removeManagedRootKeys(removeManagedBlock(existing));
+  if (provider) {
+    cleaned = removeProviderTable(cleaned, provider);
+  }
   const { root, tables } = splitRootAndTables(cleaned);
   const rootTrimmed = root.trim();
   const tablesTrimmed = tables.trim();
@@ -142,6 +156,125 @@ function placeManagedBlockFirst(existing, block, { provider = BRIDGE_PROVIDER_ID
     out += `\n${tablesTrimmed}\n`;
   }
   return out;
+}
+
+// ---- Provider selection ------------------------------------------------------
+
+function parseRootStringValue(text, key) {
+  const lines = String(text || "").split(/\n/);
+  let inRoot = true;
+  const pattern = new RegExp(`^\\s*${key}\\s*=\\s*(['"])(.*?)\\1\\s*(?:#.*)?$`);
+  for (const line of lines) {
+    if (/^\s*\[/.test(line)) {
+      inRoot = false;
+    }
+    if (!inRoot) {
+      return "";
+    }
+    const match = line.match(pattern);
+    if (match) {
+      return match[2].trim();
+    }
+  }
+  return "";
+}
+
+function providerSelectionConfig(existing, priorState) {
+  if (hasManagedBlock(existing) && priorState?.backupPath && fs.existsSync(priorState.backupPath)) {
+    try {
+      return fs.readFileSync(priorState.backupPath, "utf8");
+    } catch {
+      return removeManagedBlock(existing);
+    }
+  }
+  return hasManagedBlock(existing) ? removeManagedBlock(existing) : existing;
+}
+
+function readHistoryProviderCounts(codexHome) {
+  const db = path.join(codexHome, "state_5.sqlite");
+  if (!fs.existsSync(db)) {
+    return [];
+  }
+  try {
+    const stdout = execFileSync(
+      "sqlite3",
+      [
+        db,
+        [
+          "select model_provider, count(*)",
+          "from threads",
+          "where model_provider is not null and model_provider <> ''",
+          "group by model_provider",
+          "order by count(*) desc",
+        ].join(" "),
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+    return stdout
+      .trim()
+      .split(/\n/)
+      .filter(Boolean)
+      .map((line) => {
+        const [provider, count] = line.split("|");
+        return { provider: String(provider || "").trim(), count: Number(count || 0) };
+      })
+      .filter((entry) => entry.provider && Number.isFinite(entry.count) && entry.count > 0);
+  } catch {
+    return [];
+  }
+}
+
+function dominantHistoryProvider(historyProviderCounts = []) {
+  return [...historyProviderCounts]
+    .filter((entry) => entry?.provider && Number(entry.count) > 0)
+    .sort((a, b) => Number(b.count) - Number(a.count))[0] || null;
+}
+
+export function selectBridgeProviderStrategy({
+  configText = "",
+  historyProviderCounts = [],
+} = {}) {
+  const configProvider = parseRootStringValue(configText, "model_provider");
+  const historyProvider = dominantHistoryProvider(historyProviderCounts);
+  const historyProviderId = historyProvider?.provider || "";
+
+  if (configProvider && !RESERVED_PROVIDER_IDS.has(configProvider)) {
+    return {
+      provider: configProvider,
+      providerMode: PROVIDER_MODE_CUSTOM,
+      providerSource: "config",
+      historyProviderId,
+      historyPreserved: true,
+    };
+  }
+
+  if (historyProviderId && !RESERVED_PROVIDER_IDS.has(historyProviderId)) {
+    return {
+      provider: historyProviderId,
+      providerMode: PROVIDER_MODE_CUSTOM,
+      providerSource: "history",
+      historyProviderId,
+      historyPreserved: true,
+    };
+  }
+
+  if (configProvider === OPENAI_PROVIDER_ID || historyProviderId === OPENAI_PROVIDER_ID) {
+    return {
+      provider: OPENAI_PROVIDER_ID,
+      providerMode: PROVIDER_MODE_OPENAI_BASE_URL,
+      providerSource: configProvider === OPENAI_PROVIDER_ID ? "config-openai-base-url" : "history-openai-base-url",
+      historyProviderId,
+      historyPreserved: historyProviderId === OPENAI_PROVIDER_ID,
+    };
+  }
+
+  return {
+    provider: BRIDGE_PROVIDER_ID,
+    providerMode: PROVIDER_MODE_CUSTOM,
+    providerSource: configProvider ? `reserved-${configProvider}` : "default",
+    historyProviderId,
+    historyPreserved: historyProviderId === BRIDGE_PROVIDER_ID,
+  };
 }
 
 // ---- DeepSeek key storage (secret; never logged) ----------------------------
@@ -305,6 +438,7 @@ export function configureCodex({
   bridgeVersion = "0.0.0",
   runCodex = defaultRunCodex,
   adaptLogin = true,
+  historyProviderCounts,
 } = {}) {
   ensureDir(codexHome);
   ensureDir(bridgeHome);
@@ -326,14 +460,20 @@ export function configureCodex({
     backupPath = `${configPath}.${timestamp()}.bak`;
     fs.writeFileSync(backupPath, existing);
   }
+  const providerStrategy = selectBridgeProviderStrategy({
+    configText: providerSelectionConfig(existing, priorState),
+    historyProviderCounts: historyProviderCounts || readHistoryProviderCounts(codexHome),
+  });
   const block = buildManagedConfigBlock({
     model,
-    provider: BRIDGE_PROVIDER_ID,
+    provider: providerStrategy.provider,
+    providerMode: providerStrategy.providerMode,
     baseUrl,
     catalogPath,
     reasoningEffort,
   });
-  fs.writeFileSync(configPath, placeManagedBlockFirst(existing, block, { provider: BRIDGE_PROVIDER_ID }));
+  const replacedProvider = providerStrategy.providerMode === PROVIDER_MODE_CUSTOM ? providerStrategy.provider : "";
+  fs.writeFileSync(configPath, placeManagedBlockFirst(existing, block, { provider: replacedProvider }));
 
   // Store the key only when supplied; otherwise keep any existing stored key.
   let keyStored = Boolean(readStoredKey(bridgeHome));
@@ -360,6 +500,11 @@ export function configureCodex({
     backupPath,
     catalogPath,
     configPath,
+    providerId: providerStrategy.provider,
+    providerMode: providerStrategy.providerMode,
+    providerSource: providerStrategy.providerSource,
+    historyProviderId: providerStrategy.historyProviderId,
+    historyPreserved: providerStrategy.historyPreserved,
     installedAt: new Date().toISOString(),
   });
 
@@ -372,6 +517,11 @@ export function configureCodex({
     baseUrl,
     model,
     port,
+    providerId: providerStrategy.provider,
+    providerMode: providerStrategy.providerMode,
+    providerSource: providerStrategy.providerSource,
+    historyProviderId: providerStrategy.historyProviderId,
+    historyPreserved: providerStrategy.historyPreserved,
     keyStored,
     loginMode: login.loginMode,
     loginAction: login.action,

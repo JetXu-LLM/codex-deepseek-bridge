@@ -5,6 +5,25 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.9
+
+Makes provider selection history-aware while avoiding reserved provider overrides.
+
+### Fixed
+
+- `setup` now chooses the bridge provider from the user's original config and local history database.
+  Non-reserved providers such as `codex` are reused so Codex Desktop can keep showing matching local
+  chat history.
+- When history is under the reserved built-in `openai` provider, `setup` now uses the official
+  `openai_base_url` override instead of writing `[model_providers.openai]`.
+- Reserved non-OpenAI providers such as `ollama`, `lmstudio`, and `amazon-bedrock` fall back to the
+  independent `deepseek_bridge` provider instead of being overridden.
+
+### Changed
+
+- CLI and docs now report whether setup preserved provider-scoped local history or used an
+  independent provider whose hidden history returns after `restore`.
+
 ## 0.1.8
 
 Fixes local API-key/GPT history disappearing after switching Codex to DeepSeek.

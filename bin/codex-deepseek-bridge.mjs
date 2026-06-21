@@ -175,13 +175,25 @@ async function appendUpdateLine(currentVersion, env, bridgeHome) {
 
 // ---- setup ------------------------------------------------------------------
 
-function setupSuccessMessage(loginMode, port, started) {
+function historyLine(result) {
+  if (result?.historyPreserved) {
+    if (result.providerMode === "openai_base_url") {
+      return "History: OpenAI-provider local history should stay visible through the official openai_base_url path.";
+    }
+    return `History: local history for provider ${result.providerId} should stay visible.`;
+  }
+  return "History: existing chats are unchanged and return after restore, but chats under another provider may be hidden while DeepSeek is active.";
+}
+
+function setupSuccessMessage(result, started) {
+  const loginMode = result.loginMode;
   const runningLine = started
-    ? `Bridge running: http://127.0.0.1:${port}/report`
+    ? `Bridge running: http://127.0.0.1:${result.port}/report`
     : "Start the bridge with: codex-deepseek-bridge start";
   if (loginMode === "chatgpt") {
     return [
-      "Configured Codex for DeepSeek. Your ChatGPT login was left unchanged, so your Codex history stays available.",
+      "Configured Codex for DeepSeek. Your ChatGPT login was left unchanged.",
+      historyLine(result),
       runningLine,
       "Start the bridge again later with: codex-deepseek-bridge start",
     ].join("\n");
@@ -189,13 +201,15 @@ function setupSuccessMessage(loginMode, port, started) {
   if (loginMode === "uncertain") {
     return [
       "Configured Codex for DeepSeek. I could not confirm your Codex login state, so I left it unchanged.",
+      historyLine(result),
       runningLine,
       "Next: restart Codex, then pick deepseek-pro or deepseek-flash.",
     ].join("\n");
   }
   if (loginMode === "api-key") {
     return [
-      "Configured Codex for DeepSeek. Your existing API-key login and local Codex history were left unchanged.",
+      "Configured Codex for DeepSeek. Your existing API-key login was left unchanged.",
+      historyLine(result),
       runningLine,
       "Next: restart Codex, then pick deepseek-pro or deepseek-flash.",
       "Start the bridge again later with: codex-deepseek-bridge start",
@@ -204,6 +218,7 @@ function setupSuccessMessage(loginMode, port, started) {
   // loginMode === "none"
   return [
     "Configured Codex for DeepSeek. No Codex login was changed; the bridge will use your stored DeepSeek key.",
+    historyLine(result),
     runningLine,
     "Next: restart Codex, then pick deepseek-pro or deepseek-flash.",
     "Start the bridge again later with: codex-deepseek-bridge start",
@@ -336,7 +351,7 @@ async function cmdSetup(args, env, config) {
   }
 
   out(desktopPatchLine(desktopPatch));
-  out(setupSuccessMessage(result.loginMode, port, started));
+  out(setupSuccessMessage(result, started));
   await appendUpdateLine(bridgeVersion(), env, bridgeHome);
   return 0;
 }
@@ -451,7 +466,11 @@ async function cmdDoctor(args, env, config) {
     `Bridge: ok. DeepSeek key: ${keyState}. Codex config: ${configState}. Codex login: ${login}. Desktop picker patch: ${doctorDesktopPatchText(desktopPatch)}.`,
   );
   if (login === "api-key") {
-    out("History note: local API-key Codex history should stay visible. ChatGPT cloud-only history still requires ChatGPT sign-in.");
+    out(
+      inspect.state?.historyPreserved
+        ? `History note: local history for provider ${inspect.state.providerId || "the selected provider"} should stay visible. ChatGPT cloud-only history still requires ChatGPT sign-in.`
+        : "History note: chats under another provider may be hidden while DeepSeek is active, but restore brings the previous config back.",
+    );
   }
   await appendUpdateLine(liveVersion, env, bridgeHome);
   return 0;

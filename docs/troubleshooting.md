@@ -77,11 +77,16 @@ Run:
 codex-deepseek-bridge doctor
 ```
 
-If your existing local API-key/GPT project history disappeared after setup, upgrade to `0.1.8` or
-newer and run `setup` again. Older bridge builds used a new provider id, so Codex Desktop could show
-your projects but filter the chat list to the new DeepSeek provider. Current builds reuse Codex's
-local `codex` provider id while pointing that provider at the bridge, so existing local API-key
-history stays visible without database migration.
+If your existing local API-key/GPT project history disappeared after setup, upgrade to `0.1.9` or
+newer and run `setup` again. Codex Desktop scopes local chat lists by provider id. Current setup
+looks at your original config and local thread database, then preserves history when it can do so
+without overriding reserved built-in provider IDs:
+
+- Non-reserved providers, such as `codex`, are reused while their base URL points at the bridge.
+- `openai` uses the official `openai_base_url` override.
+- Other reserved providers and machines with no useful history use the independent
+  `deepseek_bridge` provider. In that case old chats are unchanged but may be hidden while DeepSeek
+  is active; `restore` brings the previous config back.
 
 ChatGPT cloud-only history is separate. If `doctor` says `Codex login: api-key`, Codex still has no
 ChatGPT token for cloud history endpoints. To recover ChatGPT-backed cloud history while keeping the

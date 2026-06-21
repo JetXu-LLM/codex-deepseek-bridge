@@ -9,6 +9,7 @@ import {
   configureCodex,
   detectLoginMode,
   restoreCodexConfig,
+  selectBridgeProviderStrategy,
 } from "../src/install.mjs";
 
 function tempRoot() {
@@ -44,9 +45,9 @@ test("configureCodex writes one managed block and the two-model catalog", () => 
   const config = fs.readFileSync(result.configPath, "utf8");
   assert.equal((config.match(/# >>> codex-deepseek-bridge/g) || []).length, 1);
   assert.match(config, /^model = "deepseek-pro"$/m);
-  assert.match(config, /^model_provider = "codex"$/m);
+  assert.match(config, /^model_provider = "deepseek_bridge"$/m);
   assert.match(config, /^model_reasoning_effort = "high"$/m);
-  assert.match(config, /\[model_providers\.codex\]/);
+  assert.match(config, /\[model_providers\.deepseek_bridge\]/);
   assert.match(config, /^requires_openai_auth = false$/m);
   // No legacy named-profile file is created.
   assert.equal(fs.existsSync(path.join(codexHome, "deepseek.config.toml")), false);
@@ -60,6 +61,9 @@ test("configureCodex writes one managed block and the two-model catalog", () => 
   assert.equal(state.bridgeVersion, "1.2.3");
   assert.equal(state.port, 8787);
   assert.equal(state.loginMode, "none");
+  assert.equal(state.providerId, "deepseek_bridge");
+  assert.equal(state.providerMode, "custom");
+  assert.equal(state.historyPreserved, false);
 });
 
 test("stores the DeepSeek key owner-only and never changes Codex login", () => {
@@ -190,6 +194,56 @@ test("does not reparent user root keys under the managed provider table", () => 
   const firstTableLine = config.split("\n").findIndex((line) => /^\s*\[/.test(line));
   const sandboxLine = config.split("\n").findIndex((line) => line.startsWith("sandbox_mode"));
   assert.ok(sandboxLine !== -1 && sandboxLine < firstTableLine, "root keys must precede the first table");
+});
+
+test("uses openai_base_url for the reserved OpenAI provider instead of overriding it", () => {
+  const root = tempRoot();
+  const codexHome = path.join(root, "codex");
+  const bridgeHome = path.join(root, "bridge");
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.writeFileSync(path.join(codexHome, "config.toml"), 'model_provider = "openai"\nopenai_base_url = "https://proxy.example/v1"\n');
+
+  const result = configureCodex({
+    codexHome,
+    bridgeHome,
+    apiKey: "deepseek-x",
+    adaptLogin: false,
+    runCodex: makeRunCodex([]),
+    historyProviderCounts: [{ provider: "openai", count: 12 }],
+  });
+  const config = fs.readFileSync(result.configPath, "utf8");
+
+  assert.match(config, /^model_provider = "openai"$/m);
+  assert.match(config, /^openai_base_url = "http:\/\/127\.0\.0\.1:8787\/v1"$/m);
+  assert.doesNotMatch(config, /^\[model_providers\.openai\]$/m);
+  assert.equal(result.providerMode, "openai_base_url");
+  assert.equal(result.historyPreserved, true);
+});
+
+test("falls back to an independent provider for reserved non-OpenAI providers", () => {
+  const strategy = selectBridgeProviderStrategy({
+    configText: 'model_provider = "ollama"\n',
+    historyProviderCounts: [{ provider: "ollama", count: 20 }],
+  });
+
+  assert.equal(strategy.provider, "deepseek_bridge");
+  assert.equal(strategy.providerMode, "custom");
+  assert.equal(strategy.historyPreserved, false);
+});
+
+test("uses dominant non-reserved history when the config provider is reserved", () => {
+  const strategy = selectBridgeProviderStrategy({
+    configText: 'model_provider = "openai"\n',
+    historyProviderCounts: [
+      { provider: "codex", count: 935 },
+      { provider: "openai", count: 3 },
+    ],
+  });
+
+  assert.equal(strategy.provider, "codex");
+  assert.equal(strategy.providerMode, "custom");
+  assert.equal(strategy.providerSource, "history");
+  assert.equal(strategy.historyPreserved, true);
 });
 
 test("restore strips the managed block when there is no recorded backup", () => {
