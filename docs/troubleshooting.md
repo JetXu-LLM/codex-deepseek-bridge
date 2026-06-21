@@ -135,8 +135,6 @@ The background process does not survive a reboot or a new login on Windows. Star
 codex-deepseek-bridge start
 ```
 
-Tip: star the repo so the command is easy to find later.
-
 ## macOS Gatekeeper blocks the binary
 
 Unsigned binaries trigger Gatekeeper. Clear the quarantine attribute and make it executable:

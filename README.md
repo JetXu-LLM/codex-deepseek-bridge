@@ -6,6 +6,11 @@ By default, setup uses Codex's official config path and publishes `deepseek-pro`
 opt in to the Desktop compatibility patch, Codex also shows `deepseek-flash` in the model picker and
 keeps provider-scoped local history visible in more Desktop builds.
 
+## Requirements
+
+- A DeepSeek API key (`https://platform.deepseek.com`).
+- The Codex app, on macOS or Windows.
+
 ## Quick Start
 
 ### macOS Apple Silicon
@@ -143,7 +148,9 @@ codex-deepseek-bridge restore
 http://localhost:8787/report
 ```
 
-The bridge binds to the local loopback interface (`127.0.0.1`) and uploads no telemetry.
+The report is read-only. It shows every DeepSeek call, token and cache usage, latency, and
+prompt-prefix stability, with a per-call detail view. No prompt text is stored or shown. The bridge
+binds to the local loopback interface (`127.0.0.1`) and uploads no telemetry.
 
 ## Privacy And Responsibility
 

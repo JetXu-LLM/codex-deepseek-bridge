@@ -44,8 +44,8 @@ By default the diagnostics store no prompt text. They store:
 - stable-prefix hash
 - volatile-signal counts
 
-Set `DSCB_LOG_PAYLOADS=1` only when you intentionally want redacted request and response payloads
-written to local disk for debugging.
+Set `DSCB_LOG_PAYLOADS=1` only when you want redacted request and response payloads written to
+local disk for debugging.
 
 ## Logs
 

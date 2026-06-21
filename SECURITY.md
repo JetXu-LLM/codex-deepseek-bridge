@@ -15,8 +15,8 @@ The key is a secret and is handled accordingly:
 - It is never printed, logged, or committed. Error messages and logs redact `sk-...` keys and
   `Bearer ...` tokens.
 
-Key resolution at request time: process environment, then the stored key file, then the bearer Codex
-forwards from older configs that still set `requires_openai_auth = true`. Current generated configs
+The bridge resolves the key at request time in this order: process environment, then the stored key
+file, then the bearer Codex forwards from older configs that still set `requires_openai_auth = true`. Current generated configs
 use `requires_openai_auth = false`, so the bridge does not need Codex's login token. If
 `DSCB_BRIDGE_API_KEY` is set, the incoming bearer only gates the bridge and the upstream key must
 come from the environment or the stored file.

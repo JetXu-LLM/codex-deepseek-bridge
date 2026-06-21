@@ -5,6 +5,28 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.15
+
+Redesigns the local report and hardens Desktop patch error handling.
+
+### Added
+
+- A redesigned local report at `http://localhost:8787/report`: a single-page dashboard with KPI
+  cards, inline SVG charts (cache hit rate, prefix risk, tokens by model, latency trend), a models
+  table, and a recent-calls table where each row expands to full per-call metadata. It stays
+  read-only and offline, stores no prompt text, and follows the system light or dark theme.
+
+### Fixed
+
+- `setup --desktop-patch` and `restore` no longer surface a raw Node stack trace when the Codex
+  Desktop app is read-only. The failure is reported as a clear, actionable message.
+- The report no longer shows confusing field values; the DeepSeek key status reads "Stored" or
+  "Not stored".
+
+### Changed
+
+- Tightened the README and docs for clarity and consistency.
+
 ## 0.1.14
 
 Fixes the macOS test regressions and makes Desktop patching more honest.

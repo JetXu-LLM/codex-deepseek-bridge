@@ -37,10 +37,9 @@ active, Codex runs on DeepSeek; use `restore` to return to your previous setup.
 
 ## Logs
 
-Metadata logs default to `<bridgeHome>/logs`. By default they store request summaries, usage and
-cache fields, prompt hashes, role sequences, lengths, and tool hashes — never prompt text. Disable
-them with `DSCB_LOG_DIR=off`. Enable redacted payload logs only for local debugging with
-`DSCB_LOG_PAYLOADS=1`.
+Metadata logs default to `<bridgeHome>/logs`. They store request summaries, usage and cache fields,
+prompt hashes, role sequences, lengths, and tool hashes — never prompt text. Disable them with
+`DSCB_LOG_DIR=off`. Enable redacted payload logs only for local debugging with `DSCB_LOG_PAYLOADS=1`.
 
 ## Do not leak keys
 

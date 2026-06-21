@@ -339,7 +339,13 @@ async function maybePatchCodexDesktop(args, env, bridgeHome) {
     return { status: "needs-consent" };
   }
 
-  return patchCodexDesktop({ env, bridgeHome });
+  try {
+    return await patchCodexDesktop({ env, bridgeHome });
+  } catch (error) {
+    // A patch failure (for example a read-only Codex.app) must never surface a raw
+    // stack trace; report it as a clean status the CLI can render.
+    return { status: "error", reason: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 async function cmdSetup(args, env, config) {
@@ -557,7 +563,14 @@ function cmdRestore(args, env, config) {
   const bridgeHome = defaultBridgeHome(env);
   const stopped = stopDaemon(config.pidFile);
   const result = restoreCodexConfig({ env, backupPath: args["from-backup"] || args.backup || "" });
-  const desktopRestore = restoreCodexDesktopPatch({ env, bridgeHome });
+  let desktopRestore;
+  try {
+    desktopRestore = restoreCodexDesktopPatch({ env, bridgeHome });
+  } catch (error) {
+    // Never surface a raw stack if the Desktop app is read-only; the config
+    // restore below is the part that matters most.
+    desktopRestore = { changed: false, status: "error", reason: error instanceof Error ? error.message : String(error) };
+  }
   const shouldPurge = args.purge === true;
 
   if (args.logout === true) {
@@ -587,6 +600,9 @@ function cmdRestore(args, env, config) {
     out(withPurgedBridgeHome(withStoppedBridge("Restored the Codex Desktop picker. Restart Codex to apply.", stopped), purged));
   } else {
     out(withPurgedBridgeHome(withStoppedBridge("Restored your previous Codex config. Restart Codex to apply.", stopped), purged));
+  }
+  if (desktopRestore.status === "error") {
+    out("Note: the Codex Desktop app could not be modified (it may be read-only). If its picker still looks patched, reinstall or update Codex.");
   }
   return 0;
 }

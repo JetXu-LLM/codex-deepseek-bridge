@@ -63,9 +63,9 @@ sequenceDiagram
   Bridge->>DeepSeek: /chat/completions
 ```
 
-When that exact bundle shape is detected, plain `setup` skips the Desktop patch and prints the
-explicit opt-in command. Run `setup --desktop-patch` or set `DSCB_DESKTOP_PATCH=on` to patch the
-renderer's allowlist gate so visible models are decided by the local catalog's `hidden` flag.
+When the bridge detects that exact filter, plain `setup` skips the Desktop patch and prints the
+explicit opt-in command. Run `setup --desktop-patch` or set `DSCB_DESKTOP_PATCH=on` to make the
+renderer decide visible models from the local catalog's `hidden` flag instead of the allowlist gate.
 
 The patch is conservative:
 
@@ -140,8 +140,8 @@ generation. Unknown or dated slugs fold to the nearest known slug so old session
 
 `models.json` carries both Codex CLI catalog fields (`slug`, `display_name`,
 `default_reasoning_level`, `supported_reasoning_levels`) and Codex desktop app-server fields
-(`model`, `displayName`, `defaultReasoningEffort`, `supportedReasoningEfforts`). `deepseek-pro` has
-the first catalog priority and is always the default.
+(`model`, `displayName`, `defaultReasoningEffort`, `supportedReasoningEfforts`). `deepseek-pro` holds
+the top catalog priority and is always the default.
 
 Each model exposes three reasoning efforts:
 

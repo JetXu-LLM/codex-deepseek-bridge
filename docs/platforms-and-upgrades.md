@@ -69,10 +69,11 @@ app-server returns the DeepSeek catalog. This is tracked upstream in
 setup publishes `deepseek-pro` only. With the patch active, setup publishes `deepseek-pro` and
 `deepseek-flash`.
 
-Plain `setup` skips the reversible local picker patch and publishes `deepseek-pro` only. Apply the
-patch explicitly with `setup --desktop-patch` or `DSCB_DESKTOP_PATCH=on`. The patch makes the picker
-use the local catalog's `hidden` flag instead of that allowlist gate. It also relaxes Desktop's
-recent-thread provider filter so local history remains visible across provider-compatible setups.
+Plain `setup` skips the reversible Desktop compatibility patch and publishes `deepseek-pro` only.
+Apply the patch explicitly with `setup --desktop-patch` or `DSCB_DESKTOP_PATCH=on`. The patch makes
+the picker use the local catalog's `hidden` flag instead of that allowlist gate. It also relaxes
+Desktop's recent-thread provider filter so local history remains visible across provider-compatible
+setups.
 
 On macOS, the patch touches:
 

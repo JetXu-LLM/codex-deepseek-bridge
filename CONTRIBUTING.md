@@ -3,8 +3,7 @@
 Thanks for helping improve Codex DeepSeek Bridge.
 
 This project is intentionally small: one DeepSeek-only path for the Codex app, fully reversible. Keep
-contributions scoped to the Codex-to-DeepSeek bridge. It is not a multi-provider router or a Codex UI
-mod.
+contributions scoped to that bridge: it is not a multi-provider router or a Codex UI mod.
 
 ## Development setup
 
