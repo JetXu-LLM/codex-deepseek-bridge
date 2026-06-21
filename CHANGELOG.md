@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.3
+
+Fixes the release workflow on Windows.
+
+### Fixed
+
+- `npm run check` now uses a Node script instead of shell globs, so GitHub Actions can run the same
+  syntax check on macOS and Windows.
+
 ## 0.1.2
 
 Fixes the model catalog for current Codex builds.
