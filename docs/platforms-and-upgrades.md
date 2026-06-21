@@ -2,8 +2,9 @@
 
 Codex DeepSeek Bridge supports macOS and Windows. The flow is the same on both:
 
-1. Get the bridge (binary, npm, or the Path A prompt).
-2. Run `setup` and paste your DeepSeek key when the terminal asks for it.
+1. Get the bridge (binary, GitHub npm install, or the Path A prompt).
+2. Run `setup` and paste your DeepSeek key when the terminal asks for it, unless a key is already
+   stored on this machine.
 3. Restart Codex.
 4. Re-run `start` after a reboot or when the bridge is not running.
 
@@ -26,14 +27,14 @@ chmod +x ./codex-deepseek-bridge-macos-arm64
 .\codex-deepseek-bridge-win-x64.exe setup
 ```
 
-### npm (if you have Node)
+### GitHub npm install (if you have Node)
 
 ```bash
-npm install -g codex-deepseek-bridge
+npm install -g github:JetXu-LLM/codex-deepseek-bridge
 codex-deepseek-bridge setup
 ```
 
-Before the npm package is published: `npm install -g github:JetXu-LLM/codex-deepseek-bridge`.
+The npm registry package name is reserved for a later maintainer publish.
 
 ## The key is read from stdin
 
@@ -83,7 +84,7 @@ codex-deepseek-bridge upgrade --check   # print installed and latest versions, c
 
 `upgrade` updates per install method:
 
-- **npm:** runs `npm install -g codex-deepseek-bridge@latest`.
+- **GitHub npm install:** prints `npm install -g github:JetXu-LLM/codex-deepseek-bridge`.
 - **binary:** downloads the matching release asset, verifies its checksum, and swaps it in place
   (keeping the previous binary for `upgrade --rollback`). It never swaps on a checksum mismatch.
 - **source:** prints `git pull && npm install`.

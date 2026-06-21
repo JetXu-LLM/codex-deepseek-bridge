@@ -457,9 +457,9 @@ async function cmdUpgrade(args, env, config) {
   }
 
   if (method === "npm") {
-    const result = spawnSync("npm", ["install", "-g", `codex-deepseek-bridge@${latest}`], { stdio: "inherit" });
+    const result = spawnSync("npm", ["install", "-g", `github:${repo}`], { stdio: "inherit" });
     if (result.status !== 0) {
-      err("npm upgrade failed. Run: npm install -g codex-deepseek-bridge@latest");
+      err(`npm upgrade failed. Run: npm install -g github:${repo}`);
       return 1;
     }
   } else if (method === "binary") {

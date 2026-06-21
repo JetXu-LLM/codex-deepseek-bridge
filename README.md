@@ -71,15 +71,15 @@ anyway"):
 configures Codex, and starts the bridge. The key is not echoed. Then **restart Codex**.
 
 <details>
-<summary>Have Node installed? Use npm instead.</summary>
+<summary>Have Node installed? Install from GitHub with npm.</summary>
 
 ```bash
-npm install -g codex-deepseek-bridge
+npm install -g github:JetXu-LLM/codex-deepseek-bridge
 codex-deepseek-bridge setup
 ```
 
-Before the npm package is published, install from GitHub:
-`npm install -g github:JetXu-LLM/codex-deepseek-bridge`.
+The npm registry package name is reserved for a later maintainer publish. Until then, use the GitHub
+install command above or the release binary.
 </details>
 
 ## Signing in

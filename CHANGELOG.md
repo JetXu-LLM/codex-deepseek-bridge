@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.6
+
+Keeps install and upgrade instructions accurate before the npm registry package is published.
+
+### Fixed
+
+- README and platform docs now use the working GitHub npm install command:
+  `npm install -g github:JetXu-LLM/codex-deepseek-bridge`.
+- `upgrade` in npm install mode now uses the GitHub install source instead of the not-yet-published
+  npm registry package.
+
 ## 0.1.5
 
 Fixes the Codex desktop picker and preserves ChatGPT-backed history.
