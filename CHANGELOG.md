@@ -5,6 +5,22 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.1
+
+Fixes a config-writing bug that could corrupt `~/.codex/config.toml`.
+
+### Fixed
+
+- The managed block no longer reparents your existing root-level settings under the DeepSeek provider
+  table. TOML treats every bare key after a `[table]` header as part of that table, so appending user
+  content after the managed block's `[model_providers.deepseek_bridge]` table moved root keys (e.g.
+  `sandbox_mode`, `approval_policy`, `notify`) under it and made `config.toml` invalid — which made
+  Codex fall back to defaults (GPT picker, empty project list). The writer now keeps all root keys
+  before any table and places the provider table after them, so the config stays valid TOML and Codex
+  keeps reading your projects and settings.
+- `setup` now strips only the root keys the managed block actually writes (`model`, `model_provider`,
+  `model_catalog_json`, `model_reasoning_effort`), preserving every other user setting.
+
 ## 0.1.0
 
 A single, DeepSeek-only Codex experience. This is a redesign: Codex runs on DeepSeek through one

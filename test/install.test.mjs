@@ -121,6 +121,77 @@ test("re-running setup is idempotent: one block, key and original backup preserv
   assert.equal(fs.readFileSync(path.join(bridgeHome, "deepseek-key"), "utf8").trim(), "deepseek-one");
 });
 
+// Returns the TOML table a key's first occurrence belongs to ("" = root).
+function tableOf(configText, key) {
+  let section = "";
+  for (const line of configText.split("\n")) {
+    const trimmed = line.trim();
+    const table = trimmed.match(/^\[+(.+?)\]+$/);
+    if (table) {
+      section = table[1];
+      continue;
+    }
+    const kv = trimmed.match(/^([A-Za-z0-9_-]+)\s*=/);
+    if (kv && kv[1] === key) {
+      return section;
+    }
+  }
+  return null;
+}
+
+test("does not reparent user root keys under the managed provider table", () => {
+  const root = tempRoot();
+  const codexHome = path.join(root, "codex");
+  const bridgeHome = path.join(root, "bridge");
+  fs.mkdirSync(codexHome, { recursive: true });
+  // Mirrors a real config: many root keys (beyond what the block sets), then tables.
+  const original = [
+    "#:schema https://example.test/schema.json",
+    'model = "gpt-5.5"',
+    "model_context_window = 400000",
+    'model_reasoning_effort = "xhigh"',
+    "disable_response_storage = true",
+    'sandbox_mode = "danger-full-access"',
+    'approval_policy = "never"',
+    'model_provider = "codex"',
+    'notify = ["a", "turn-ended"]',
+    "",
+    "[model_providers.codex]",
+    'name = "codex"',
+    "",
+    '[projects."/Users/me/proj"]',
+    'trust_level = "trusted"',
+    "",
+  ].join("\n");
+  fs.writeFileSync(path.join(codexHome, "config.toml"), original);
+
+  const result = configureCodex({ codexHome, bridgeHome, apiKey: "deepseek-x", adaptLogin: false, runCodex: makeRunCodex([]) });
+  const config = fs.readFileSync(result.configPath, "utf8");
+
+  // The managed values win at root.
+  assert.equal(tableOf(config, "model"), "");
+  assert.match(config, /^model = "deepseek-pro"$/m);
+  assert.doesNotMatch(config, /^model = "gpt-5.5"$/m);
+  // model_reasoning_effort appears exactly once (no duplicate-key TOML error).
+  assert.equal((config.match(/^model_reasoning_effort = /gm) || []).length, 1);
+  assert.match(config, /^model_reasoning_effort = "high"$/m);
+
+  // CRITICAL: the user's other root keys stay at ROOT, not under the provider table.
+  for (const key of ["disable_response_storage", "sandbox_mode", "approval_policy", "notify", "model_context_window"]) {
+    assert.equal(tableOf(config, key), "", `${key} must remain a root key`);
+  }
+
+  // The managed provider table and the user's tables are all present and intact.
+  assert.match(config, /^\[model_providers\.deepseek_bridge\]$/m);
+  assert.match(config, /^\[model_providers\.codex\]$/m);
+  assert.match(config, /^\[projects\."\/Users\/me\/proj"\]$/m);
+
+  // Every root key must appear before the first table header (valid TOML ordering).
+  const firstTableLine = config.split("\n").findIndex((line) => /^\s*\[/.test(line));
+  const sandboxLine = config.split("\n").findIndex((line) => line.startsWith("sandbox_mode"));
+  assert.ok(sandboxLine !== -1 && sandboxLine < firstTableLine, "root keys must precede the first table");
+});
+
 test("restore strips the managed block when there is no recorded backup", () => {
   const root = tempRoot();
   const codexHome = path.join(root, "codex");

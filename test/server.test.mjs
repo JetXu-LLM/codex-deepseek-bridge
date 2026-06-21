@@ -109,6 +109,7 @@ test("uses Codex bearer token as DeepSeek key when process key is absent", async
     port: 0,
     deepseekBaseUrl: mock.baseUrl,
     apiKey: "",
+    storedKeyPath: "",
     logDir: "",
     quiet: true,
   });

@@ -15,17 +15,14 @@ const INSTALL_STATE_FILE = "install-state.json";
 const STORED_KEY_FILE = "deepseek-key";
 export const STATE_SCHEMA_VERSION = 1;
 
-// Root keys the managed block owns. Re-running setup strips these outside the
-// managed markers so the managed block stays authoritative (no duplicates).
+// Root keys the managed block writes. Re-running setup strips these from the
+// user's root region so the managed values win without duplicate-key TOML errors.
+// We strip ONLY what the block sets, to preserve every other user setting.
 const MANAGED_ROOT_KEYS = new Set([
   "model",
   "model_provider",
   "model_catalog_json",
   "model_reasoning_effort",
-  "model_reasoning_summary",
-  "model_supports_reasoning_summaries",
-  "model_context_window",
-  "personality",
 ]);
 
 function ensureDir(dir) {
@@ -92,13 +89,38 @@ function removeManagedRootKeys(text) {
     .join("\n");
 }
 
-// Put the managed block first so its root keys win, then any prior user content.
-function placeManagedBlockFirst(existing, block) {
-  const remainder = removeManagedRootKeys(removeManagedBlock(existing)).trim();
-  if (!remainder) {
-    return block;
+// Split a config into its root region (bare keys/comments before the first
+// table header) and its table region (from the first `[...]` onward).
+function splitRootAndTables(text) {
+  const lines = text.split(/\n/);
+  const tableStart = lines.findIndex((line) => /^\s*\[/.test(line));
+  if (tableStart === -1) {
+    return { root: text, tables: "" };
   }
-  return `${block}${remainder}\n`;
+  return {
+    root: lines.slice(0, tableStart).join("\n"),
+    tables: lines.slice(tableStart).join("\n"),
+  };
+}
+
+// Compose the config so it stays valid TOML: all root keys first (the user's
+// remaining root keys, then the managed root keys), then the managed provider
+// table, then the user's tables. The managed block must never leave a table
+// open ahead of user root keys, or those keys get reparented under it.
+function placeManagedBlockFirst(existing, block) {
+  const cleaned = removeManagedRootKeys(removeManagedBlock(existing));
+  const { root, tables } = splitRootAndTables(cleaned);
+  const rootTrimmed = root.trim();
+  const tablesTrimmed = tables.trim();
+  let out = "";
+  if (rootTrimmed) {
+    out += `${rootTrimmed}\n\n`;
+  }
+  out += block;
+  if (tablesTrimmed) {
+    out += `\n${tablesTrimmed}\n`;
+  }
+  return out;
 }
 
 // ---- DeepSeek key storage (secret; never logged) ----------------------------
