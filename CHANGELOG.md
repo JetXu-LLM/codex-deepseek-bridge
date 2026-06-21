@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.4
+
+Fixes the macOS x64 release runner.
+
+### Fixed
+
+- The release workflow now builds the Intel macOS asset on `macos-15-intel`, the current standard
+  GitHub-hosted Intel macOS runner label.
+
 ## 0.1.3
 
 Fixes the release workflow on Windows.
