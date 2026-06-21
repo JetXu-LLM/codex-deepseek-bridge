@@ -44,9 +44,9 @@ test("configureCodex writes one managed block and the two-model catalog", () => 
   const config = fs.readFileSync(result.configPath, "utf8");
   assert.equal((config.match(/# >>> codex-deepseek-bridge/g) || []).length, 1);
   assert.match(config, /^model = "deepseek-pro"$/m);
-  assert.match(config, /^model_provider = "deepseek_bridge"$/m);
+  assert.match(config, /^model_provider = "codex"$/m);
   assert.match(config, /^model_reasoning_effort = "high"$/m);
-  assert.match(config, /\[model_providers\.deepseek_bridge\]/);
+  assert.match(config, /\[model_providers\.codex\]/);
   assert.match(config, /^requires_openai_auth = false$/m);
   // No legacy named-profile file is created.
   assert.equal(fs.existsSync(path.join(codexHome, "deepseek.config.toml")), false);
@@ -179,9 +179,11 @@ test("does not reparent user root keys under the managed provider table", () => 
     assert.equal(tableOf(config, key), "", `${key} must remain a root key`);
   }
 
-  // The managed provider table and the user's tables are all present and intact.
-  assert.match(config, /^\[model_providers\.deepseek_bridge\]$/m);
-  assert.match(config, /^\[model_providers\.codex\]$/m);
+  // The managed provider table replaces the user's codex table while active;
+  // restore brings the backed-up original file back.
+  assert.equal((config.match(/^\[model_providers\.codex\]$/gm) || []).length, 1);
+  assert.match(config, /^base_url = "http:\/\/127\.0\.0\.1:8787\/v1"$/m);
+  assert.doesNotMatch(config, /^name = "codex"$/m);
   assert.match(config, /^\[projects\."\/Users\/me\/proj"\]$/m);
 
   // Every root key must appear before the first table header (valid TOML ordering).

@@ -89,6 +89,27 @@ function removeManagedRootKeys(text) {
     .join("\n");
 }
 
+function removeProviderTable(text, provider) {
+  const target = `model_providers.${provider}`;
+  const lines = text.split(/\n/);
+  const out = [];
+  let skipping = false;
+  for (const line of lines) {
+    const table = line.trim().match(/^\[+(.+?)\]+$/);
+    if (table) {
+      const name = table[1].trim();
+      skipping = name === target || name.startsWith(`${target}.`);
+      if (skipping) {
+        continue;
+      }
+    }
+    if (!skipping) {
+      out.push(line);
+    }
+  }
+  return out.join("\n");
+}
+
 // Split a config into its root region (bare keys/comments before the first
 // table header) and its table region (from the first `[...]` onward).
 function splitRootAndTables(text) {
@@ -107,8 +128,8 @@ function splitRootAndTables(text) {
 // remaining root keys, then the managed root keys), then the managed provider
 // table, then the user's tables. The managed block must never leave a table
 // open ahead of user root keys, or those keys get reparented under it.
-function placeManagedBlockFirst(existing, block) {
-  const cleaned = removeManagedRootKeys(removeManagedBlock(existing));
+function placeManagedBlockFirst(existing, block, { provider = BRIDGE_PROVIDER_ID } = {}) {
+  const cleaned = removeProviderTable(removeManagedRootKeys(removeManagedBlock(existing)), provider);
   const { root, tables } = splitRootAndTables(cleaned);
   const rootTrimmed = root.trim();
   const tablesTrimmed = tables.trim();
@@ -312,7 +333,7 @@ export function configureCodex({
     catalogPath,
     reasoningEffort,
   });
-  fs.writeFileSync(configPath, placeManagedBlockFirst(existing, block));
+  fs.writeFileSync(configPath, placeManagedBlockFirst(existing, block, { provider: BRIDGE_PROVIDER_ID }));
 
   // Store the key only when supplied; otherwise keep any existing stored key.
   let keyStored = Boolean(readStoredKey(bridgeHome));

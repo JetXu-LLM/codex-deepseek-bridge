@@ -7,6 +7,10 @@ bridge on your own machine.
 You bring a DeepSeek API key. The bridge does the translation. Nothing leaves your machine except the
 calls to DeepSeek.
 
+On current macOS Codex Desktop builds, the app may hide custom catalog models behind its remote
+allowlist. `setup` detects that case and asks before applying the optional local picker patch.
+`restore` undoes the patch.
+
 ---
 
 ## What you need
@@ -33,8 +37,11 @@ Steps:
 3. Run setup. If no DeepSeek key is already stored on this machine, ask me to paste it in the
    terminal (stdin), not in this chat.
 4. Back up my Codex config, then point Codex at the DeepSeek bridge (models deepseek-pro, deepseek-flash).
-5. Do not replace my Codex login. Keep my ChatGPT login if I have one, so my history stays visible.
-   The bridge should use the local stored DeepSeek key, not Codex's login token.
+   If Codex Desktop hides custom catalog models, explain the reversible local picker patch and apply
+   it only with my explicit approval, or by running setup with --desktop-patch.
+5. Do not replace my Codex login. Keep my ChatGPT login if I have one, and keep API-key mode if
+   that is how I already use Codex. Existing local history should stay visible. The bridge should
+   use the local stored DeepSeek key, not Codex's login token.
 6. Start the bridge in the background and confirm http://127.0.0.1:8787/report loads.
 7. Tell me to restart Codex, and show me the command to start the bridge again next time.
 ```
@@ -68,7 +75,9 @@ anyway"):
 ```
 
 `setup` asks you to paste your DeepSeek key into the terminal when no key is already stored,
-configures Codex, and starts the bridge. The key is not echoed. Then **restart Codex**.
+configures Codex, and starts the bridge. If your macOS Codex Desktop build hides custom catalog
+models, it asks before applying the optional picker compatibility patch. The key is not echoed. Then
+**restart Codex**.
 
 <details>
 <summary>Have Node installed? Install from GitHub with npm.</summary>
@@ -88,9 +97,9 @@ install command above or the release binary.
 
 - **Signed in with ChatGPT?** Keep it. Your Codex history stays available while the model picker uses
   the local DeepSeek catalog.
-- **Already in API-key login mode?** Codex can run DeepSeek, but ChatGPT-backed history is not
-  available in that mode. Run `codex-deepseek-bridge restore --logout`, sign in to Codex with
-  ChatGPT, then run `setup` again.
+- **Already in API-key login mode?** Keep it. Existing local Codex history stays visible because the
+  bridge uses Codex's local provider id while pointing that provider at DeepSeek. ChatGPT cloud-only
+  history still requires a ChatGPT sign-in.
 - **Re-running after `restore`?** If you did not use `restore --logout`, the stored DeepSeek key is
   reused and setup does not ask for it again.
 
@@ -132,6 +141,8 @@ It is read-only and local. Prompt text is not stored.
 
 - DeepSeek in the Codex app on macOS and Windows.
 - Two clean models with three reasoning levels. `deepseek-pro` is the default.
+- Existing local API-key Codex history remains visible after setup.
+- An optional macOS Desktop picker patch for Codex builds that hide custom catalog models.
 - A local usage and cache report.
 - One-command upgrades.
 - Full reversibility.
@@ -156,7 +167,7 @@ Star and watch the repo to follow along.
 ## Go back anytime
 
 ```bash
-codex-deepseek-bridge restore           # restore your previous Codex config
+codex-deepseek-bridge restore           # restore your previous Codex config and Desktop picker patch
 codex-deepseek-bridge restore --logout  # also remove an API-key login from older bridge setups
 ```
 
@@ -180,9 +191,10 @@ codex-deepseek-bridge upgrade --check   # just check if a newer version exists
 
 ## Not this
 
-This is a focused DeepSeek bridge for Codex, not a multi-provider router, not a Codex UI mod, and not
-a cloud service. While it is active, Codex runs on DeepSeek; use `restore` to return to GPT.
+This is a focused DeepSeek bridge for Codex, not a multi-provider router and not a cloud service.
+It does not add new UI; on macOS it only fixes Codex Desktop's current custom-model picker filter.
+While it is active, Codex runs on DeepSeek; use `restore` to return to GPT.
 
 ## License
 
-MIT
+Apache License 2.0. See [LICENSE](LICENSE).

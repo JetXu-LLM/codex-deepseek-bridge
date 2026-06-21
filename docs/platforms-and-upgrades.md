@@ -56,6 +56,39 @@ codex-deepseek-bridge start
 
 `start` is idempotent: if the bridge is already running it reports the port and exits.
 
+## macOS Desktop picker patch
+
+Current macOS Codex Desktop builds may hide custom catalog models behind a remote allowlist even
+after the app-server returns the DeepSeek catalog. When this is detected, interactive `setup` asks
+before applying a small reversible patch to the local Codex Desktop bundle. Automation can apply it
+explicitly with `setup --desktop-patch`. The patch makes the picker use the local catalog's
+`hidden` flag instead of that allowlist gate.
+
+The patch touches:
+
+- `/Applications/Codex.app/Contents/Resources/app.asar`
+- `/Applications/Codex.app/Contents/Info.plist`
+- `/Applications/Codex.app/Contents/_CodeSignature`
+- `/Applications/Codex.app/Contents/MacOS/Codex` when macOS rewrites the root code signature
+
+The bridge backs up those files under `<bridgeHome>/desktop-patch/`, updates Electron's ASAR
+integrity hash, and re-signs the app with an ad-hoc local signature. `restore` puts the backups
+back, verifies the app bundle, and re-signs locally again only if the restored signature no longer
+verifies. If Codex Desktop later removes this allowlist behavior, `setup` detects that the patch
+target is absent and leaves the app bundle unchanged.
+
+Apply it explicitly with:
+
+```bash
+codex-deepseek-bridge setup --desktop-patch
+```
+
+Skip the Desktop patch with:
+
+```bash
+DSCB_DESKTOP_PATCH=off codex-deepseek-bridge setup
+```
+
 ## Files under CODEX_HOME
 
 `CODEX_HOME` defaults to `~/.codex` (`%USERPROFILE%\.codex` on Windows). The bridge writes:
@@ -65,6 +98,7 @@ codex-deepseek-bridge start
 - `<bridgeHome>/deepseek-key` — the stored key (owner-only).
 - `<bridgeHome>/install-state.json` — what was changed, the backup path, the resolved port, the
   detected login mode, the install method, and the bridge version.
+- `<bridgeHome>/desktop-patch/` — macOS Codex Desktop picker backups when that patch is needed.
 - `<bridgeHome>/bridge.pid`, `bridge.stdout.log`, `bridge.stderr.log` — daemon bookkeeping.
 
 `<bridgeHome>` defaults to `<CODEX_HOME>/codex-deepseek-bridge`.
@@ -90,8 +124,9 @@ codex-deepseek-bridge upgrade --check   # print installed and latest versions, c
 - **source:** prints `git pull && npm install`.
 
 After updating, `upgrade` re-runs the idempotent `setup` reconcile (rewriting `models.json` and the
-managed block, preserving your key and port, never touching login) and restarts the bridge. If the
-model catalog changed, it tells you to restart Codex.
+managed block, preserving your key and port, never touching login), refreshes the Desktop picker
+patch only if it was already managed by the bridge or `DSCB_DESKTOP_PATCH=on` is set, and restarts
+the bridge. If the model catalog or Desktop patch changed, restart Codex.
 
 The running bridge can also notice a newer release on its own and surface it in the report and in
 `version` / `doctor`. It reads only public GitHub release metadata, uploads nothing, and never

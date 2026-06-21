@@ -9,8 +9,11 @@ Steps:
 3. Run setup. If no DeepSeek key is already stored on this machine, ask me to paste it in the
    terminal (stdin), not in this chat.
 4. Back up my Codex config, then point Codex at the DeepSeek bridge (models deepseek-pro, deepseek-flash).
-5. Do not replace my Codex login. Keep my ChatGPT login if I have one, so my history stays visible.
-   The bridge should use the local stored DeepSeek key, not Codex's login token.
+   If Codex Desktop hides custom catalog models, explain the reversible local picker patch and apply
+   it only with my explicit approval, or by running setup with --desktop-patch.
+5. Do not replace my Codex login. Keep my ChatGPT login if I have one, and keep API-key mode if
+   that is how I already use Codex. Existing local history should stay visible. The bridge should
+   use the local stored DeepSeek key, not Codex's login token.
 6. Start the bridge in the background and confirm http://127.0.0.1:8787/report loads.
 7. Tell me to restart Codex, and show me the command to start the bridge again next time.
 `;

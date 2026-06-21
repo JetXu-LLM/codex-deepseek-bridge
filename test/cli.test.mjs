@@ -33,6 +33,7 @@ test("setup --from-stdin --no-start writes the managed block, catalog, and key",
       ...process.env,
       CODEX_HOME: codexHome,
       DSCB_HOME: bridgeHome,
+      DSCB_DESKTOP_PATCH: "off",
       DSCB_UPDATE_CHECK: "off",
       // Keep `codex` off PATH so login detection stays read-only in the test.
       PATH: "",
@@ -44,7 +45,7 @@ test("setup --from-stdin --no-start writes the managed block, catalog, and key",
   const config = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
   assert.match(config, /# >>> codex-deepseek-bridge/);
   assert.match(config, /^model = "deepseek-pro"$/m);
-  assert.match(config, /^model_provider = "deepseek_bridge"$/m);
+  assert.match(config, /^model_provider = "codex"$/m);
 
   const catalog = JSON.parse(fs.readFileSync(path.join(bridgeHome, "models.json"), "utf8"));
   assert.deepEqual(catalog.models.map((entry) => entry.slug), ["deepseek-pro", "deepseek-flash"]);
@@ -72,6 +73,7 @@ test("setup with no key gives guidance and makes no changes", () => {
       ...process.env,
       CODEX_HOME: codexHome,
       DSCB_HOME: bridgeHome,
+      DSCB_DESKTOP_PATCH: "off",
       DSCB_UPDATE_CHECK: "off",
       DEEPSEEK_API_KEY: "",
       PATH: "",
@@ -97,6 +99,7 @@ test("setup reuses an existing stored key after a normal restore", () => {
       ...process.env,
       CODEX_HOME: codexHome,
       DSCB_HOME: bridgeHome,
+      DSCB_DESKTOP_PATCH: "off",
       DSCB_UPDATE_CHECK: "off",
       DEEPSEEK_API_KEY: "",
       PATH: "",

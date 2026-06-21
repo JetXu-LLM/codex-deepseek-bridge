@@ -16,23 +16,36 @@ The key is a secret and is handled accordingly:
   `Bearer ...` tokens.
 
 Key resolution at request time: process environment, then the stored key file, then the bearer Codex
-forwards (because the provider uses `requires_openai_auth = true`). If `DSCB_BRIDGE_API_KEY` is set,
-the incoming bearer only gates the bridge and the upstream key must come from the environment or the
-stored file.
+forwards from older configs that still set `requires_openai_auth = true`. Current generated configs
+use `requires_openai_auth = false`, so the bridge does not need Codex's login token. If
+`DSCB_BRIDGE_API_KEY` is set, the incoming bearer only gates the bridge and the upstream key must
+come from the environment or the stored file.
 
 ## Login safety
 
-- `setup` auto-signs you in with `codex login --with-api-key` only when no existing Codex auth is
-  detected, and only by piping the key over stdin.
-- `setup` never calls `codex logout`. A ChatGPT user is only ever told how to switch login.
-- `restore --logout` is the explicit, user-invoked way to remove the API-key login that setup
-  created.
+- `setup` detects the Codex login mode for reporting, but leaves ChatGPT, API-key, none, and
+  uncertain states unchanged.
+- `setup` never calls `codex logout`.
+- `restore --logout` is the explicit, user-invoked way to remove an API-key login and the stored
+  DeepSeek key.
 
 ## Reversibility
 
 `setup` backs up `config.toml` before writing and records the backup path. `restore` prefers
 restoring that exact backup; otherwise it strips only the managed block. It always takes a
-pre-restore backup first, so no write is destructive without a recoverable copy.
+pre-restore backup first, so no config write is destructive without a recoverable copy.
+
+On macOS, `setup` may also offer to patch Codex Desktop's local picker bundle when the app hides
+custom catalog models behind its remote allowlist. This requires interactive confirmation,
+`setup --desktop-patch`, or `DSCB_DESKTOP_PATCH=on`; non-interactive default setup does not silently
+modify the app bundle. The bridge backs up `app.asar`, `Info.plist`, and the code-signature
+directory before patching. On macOS, signing may also rewrite the root executable's embedded
+signature, so the bridge backs up that file too. It then updates Electron's ASAR integrity metadata
+and re-signs the app locally. `restore` puts those backups back, verifies the bundle, and performs a
+local re-sign only if the restored bundle does not verify.
+
+This project does not distribute a modified Codex app. You should review your local legal and
+contract obligations before choosing the optional Desktop patch.
 
 ## Network and report
 

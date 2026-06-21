@@ -1,9 +1,9 @@
 {
   "name": "codex-deepseek-bridge",
-  "version": "0.1.6",
+  "version": "0.1.8",
   "description": "A tiny Responses-compatible local bridge that lets OpenAI Codex use DeepSeek LLM APIs.",
   "type": "module",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "Jet Xu",
   "homepage": "https://github.com/JetXu-LLM/codex-deepseek-bridge#readme",
   "repository": {

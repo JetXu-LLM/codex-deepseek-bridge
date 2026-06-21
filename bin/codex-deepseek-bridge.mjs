@@ -28,6 +28,7 @@ import {
 } from "../src/update-check.mjs";
 import { downloadVerifiedAsset, rollbackBinary, stageBinarySwap } from "../src/upgrade.mjs";
 import { buildCacheReport, defaultLogFile, formatCacheReport, loadJsonl } from "../src/cache-report.mjs";
+import { inspectCodexDesktopPatch, patchCodexDesktop, restoreCodexDesktopPatch } from "../src/desktop-patch.mjs";
 
 const REPO_URL = "https://github.com/JetXu-LLM/codex-deepseek-bridge";
 
@@ -43,7 +44,7 @@ function printHelp() {
   process.stdout.write(`codex-deepseek-bridge — run Codex on DeepSeek.
 
 Usage:
-  codex-deepseek-bridge setup [--from-stdin] [--port 8787] [--no-start] [--print-prompt]
+  codex-deepseek-bridge setup [--from-stdin] [--port 8787] [--no-start] [--desktop-patch] [--no-desktop-patch] [--print-prompt]
   codex-deepseek-bridge start [--port 8787]
   codex-deepseek-bridge report
   codex-deepseek-bridge doctor [--live]
@@ -194,8 +195,7 @@ function setupSuccessMessage(loginMode, port, started) {
   }
   if (loginMode === "api-key") {
     return [
-      "Configured Codex for DeepSeek. Your existing API-key login was left unchanged.",
-      "Note: API-key login cannot show ChatGPT-backed history. To recover that history, run codex-deepseek-bridge restore --logout and sign in to Codex with ChatGPT.",
+      "Configured Codex for DeepSeek. Your existing API-key login and local Codex history were left unchanged.",
       runningLine,
       "Next: restart Codex, then pick deepseek-pro or deepseek-flash.",
       "Start the bridge again later with: codex-deepseek-bridge start",
@@ -209,6 +209,87 @@ function setupSuccessMessage(loginMode, port, started) {
     "Start the bridge again later with: codex-deepseek-bridge start",
     `Tip: star the repo so this command is easy to find — ${REPO_URL}`,
   ].join("\n");
+}
+
+function desktopPatchLine(result) {
+  switch (result?.status) {
+    case "patched":
+      return "Codex Desktop model picker patch: applied. Restore will undo it.";
+    case "already-patched":
+      return "Codex Desktop model picker patch: already applied.";
+    case "disabled":
+      return "Codex Desktop model picker patch: skipped.";
+    case "needs-consent":
+      return "Codex Desktop model picker patch: skipped. Run setup --desktop-patch to apply it explicitly.";
+    case "unsupported":
+      return "Codex Desktop model picker patch: not needed on this platform.";
+    case "missing":
+      return "Codex Desktop model picker patch: Codex.app was not found.";
+    case "not-writable":
+      return "Codex Desktop model picker patch: skipped because Codex.app is not writable.";
+    case "target-not-found":
+      return "Codex Desktop model picker patch: skipped because this Codex Desktop build was not recognized.";
+    case "ambiguous":
+      return "Codex Desktop model picker patch: skipped because the Desktop bundle matched more than once.";
+    case "missing-info-plist":
+    case "missing-code-signature":
+    case "missing-root-executable":
+      return "Codex Desktop model picker patch: skipped because the Codex.app bundle is incomplete.";
+    case "error":
+      return `Codex Desktop model picker patch: failed (${result.reason || "unknown error"}).`;
+    case "patchable":
+      return "Codex Desktop model picker patch: available. Run setup --desktop-patch to apply it explicitly.";
+    default:
+      return "Codex Desktop model picker patch: unknown state.";
+  }
+}
+
+function doctorDesktopPatchText(result) {
+  switch (result?.status) {
+    case "patched":
+    case "already-patched":
+      return result.managedBackup === false ? "patched (not managed by this install)" : "patched";
+    case "patchable":
+      return "needs setup";
+    case "disabled":
+      return "disabled";
+    case "unsupported":
+      return "not needed on this platform";
+    case "missing":
+      return "Codex.app not found";
+    case "target-not-found":
+      return "unrecognized Desktop build";
+    case "ambiguous":
+      return "ambiguous Desktop bundle";
+    case "error":
+      return `error (${result.reason || "unknown"})`;
+    default:
+      return result?.status || "unknown";
+  }
+}
+
+async function maybePatchCodexDesktop(args, env, bridgeHome) {
+  if (args["no-desktop-patch"] === true || env.DSCB_DESKTOP_PATCH === "off") {
+    return { status: "disabled" };
+  }
+
+  const inspect = inspectCodexDesktopPatch({ env, bridgeHome });
+  if (inspect.status !== "patchable") {
+    return inspect;
+  }
+
+  const explicit = args["desktop-patch"] === true || env.DSCB_DESKTOP_PATCH === "on";
+  if (!explicit) {
+    out("Codex Desktop is filtering custom catalog models before they reach the picker.");
+    out("The optional picker patch modifies your local Codex.app bundle, updates Electron ASAR integrity, and re-signs it locally.");
+    out("A normal restore will put the original app bundle files back.");
+    const ok = await confirm("Apply the Codex Desktop picker patch now? [y/N] ");
+    if (!ok) {
+      return { status: "needs-consent" };
+    }
+  }
+
+  return patchCodexDesktop({ env, bridgeHome });
 }
 
 async function cmdSetup(args, env, config) {
@@ -246,6 +327,7 @@ async function cmdSetup(args, env, config) {
     installMethod: detectInstallMethod(),
     bridgeVersion: bridgeVersion(),
   });
+  const desktopPatch = await maybePatchCodexDesktop(args, env, bridgeHome);
 
   let started = false;
   if (args["no-start"] !== true) {
@@ -253,6 +335,7 @@ async function cmdSetup(args, env, config) {
     started = true;
   }
 
+  out(desktopPatchLine(desktopPatch));
   out(setupSuccessMessage(result.loginMode, port, started));
   await appendUpdateLine(bridgeVersion(), env, bridgeHome);
   return 0;
@@ -309,6 +392,11 @@ async function cmdDoctor(args, env, config) {
   const bridgeHome = defaultBridgeHome(env);
   const state = readInstallState(bridgeHome);
   const port = resolvedPort(args, state, config);
+  const inspect = inspectCodexInstall({ env });
+  const keyState = inspect.keyStored || env.DEEPSEEK_API_KEY ? "stored" : "missing";
+  const configState = inspect.managedBlockPresent ? "DeepSeek active" : "not configured";
+  const login = inspect.state?.loginMode || detectLoginMode({ env });
+  const desktopPatch = inspectCodexDesktopPatch({ env, bridgeHome });
 
   let healthOk = false;
   let liveVersion = bridgeVersion();
@@ -325,6 +413,7 @@ async function cmdDoctor(args, env, config) {
 
   if (!healthOk) {
     out("Bridge: offline. Start it with: codex-deepseek-bridge start");
+    out(`Codex config: ${configState}. Codex login: ${login}. Desktop picker patch: ${doctorDesktopPatchText(desktopPatch)}.`);
     return 1;
   }
 
@@ -358,11 +447,12 @@ async function cmdDoctor(args, env, config) {
     return 1;
   }
 
-  const inspect = inspectCodexInstall({ env });
-  const keyState = inspect.keyStored || env.DEEPSEEK_API_KEY ? "stored" : "missing";
-  const configState = inspect.managedBlockPresent ? "DeepSeek active" : "not configured";
-  const login = inspect.state?.loginMode || detectLoginMode({ env });
-  out(`Bridge: ok. DeepSeek key: ${keyState}. Codex config: ${configState}. Codex login: ${login}.`);
+  out(
+    `Bridge: ok. DeepSeek key: ${keyState}. Codex config: ${configState}. Codex login: ${login}. Desktop picker patch: ${doctorDesktopPatchText(desktopPatch)}.`,
+  );
+  if (login === "api-key") {
+    out("History note: local API-key Codex history should stay visible. ChatGPT cloud-only history still requires ChatGPT sign-in.");
+  }
   await appendUpdateLine(liveVersion, env, bridgeHome);
   return 0;
 }
@@ -372,18 +462,35 @@ async function cmdDoctor(args, env, config) {
 function cmdRestore(args, env) {
   const bridgeHome = defaultBridgeHome(env);
   const result = restoreCodexConfig({ env, backupPath: args["from-backup"] || args.backup || "" });
+  const desktopRestore = restoreCodexDesktopPatch({ env, bridgeHome });
 
   if (args.logout === true) {
     codexLogout();
     removeStoredKey(bridgeHome);
-    out("Restored your previous Codex config and removed the API-key login plus stored DeepSeek key. Restart Codex.");
+    out(
+      desktopRestore.changed
+        ? "Restored your previous Codex config and Desktop picker, then removed the API-key login plus stored DeepSeek key. Restart Codex."
+        : "Restored your previous Codex config and removed the API-key login plus stored DeepSeek key. Restart Codex.",
+    );
     return 0;
   }
-  if (!result.changed) {
+  if (!result.changed && !desktopRestore.changed) {
     out("No bridge config found. Nothing to restore.");
     return 0;
   }
-  out("Restored your previous Codex config. Restart Codex to apply.");
+  if (desktopRestore.status === "signature-repaired") {
+    out(
+      result.changed
+        ? "Restored your previous Codex config and repaired the Codex Desktop app signature. Restart Codex to apply."
+        : "Repaired the Codex Desktop app signature. Restart Codex to apply.",
+    );
+  } else if (desktopRestore.changed && result.changed) {
+    out("Restored your previous Codex config and Desktop picker. Restart Codex to apply.");
+  } else if (desktopRestore.changed) {
+    out("Restored the Codex Desktop picker. Restart Codex to apply.");
+  } else {
+    out("Restored your previous Codex config. Restart Codex to apply.");
+  }
   return 0;
 }
 
@@ -494,10 +601,15 @@ async function cmdUpgrade(args, env, config) {
     bridgeVersion: latest,
     adaptLogin: false,
   });
+  const currentDesktopPatch = inspectCodexDesktopPatch({ env, bridgeHome });
+  const desktopPatch =
+    currentDesktopPatch.state?.active || env.DSCB_DESKTOP_PATCH === "on"
+      ? patchCodexDesktop({ env, bridgeHome })
+      : currentDesktopPatch;
   restartBridge(config, reconcile.port, env);
 
-  if (reconcile.catalogChanged) {
-    out(`Upgraded to ${latest}. Bridge restarted. The model catalog changed — restart Codex to pick it up.`);
+  if (reconcile.catalogChanged || desktopPatch.status === "patched") {
+    out(`Upgraded to ${latest}. Bridge restarted. Restart Codex to pick up the model catalog and picker state.`);
   } else {
     out(`Upgraded to ${latest}. Bridge restarted on http://127.0.0.1:${reconcile.port}.`);
   }

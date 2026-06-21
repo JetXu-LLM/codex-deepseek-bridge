@@ -5,6 +5,48 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.8
+
+Fixes local API-key/GPT history disappearing after switching Codex to DeepSeek.
+
+### Fixed
+
+- The managed config now reuses Codex's local `codex` provider id while pointing that provider at
+  the local bridge. Codex Desktop scopes local thread history by provider id, so existing local
+  API-key/GPT history remains visible after setup.
+- Re-running `setup` removes the active `[model_providers.codex]` table before writing the managed
+  replacement, preventing duplicate TOML tables while keeping restore fully reversible from the
+  original setup backup.
+
+### Changed
+
+- README, architecture docs, examples, and troubleshooting now distinguish local API-key history
+  from ChatGPT cloud-only history.
+
+## 0.1.7
+
+Fixes the current macOS Codex Desktop picker filter for custom catalog models.
+
+### Fixed
+
+- `setup` now detects the Codex Desktop renderer allowlist gate that can hide `deepseek-pro` and
+  `deepseek-flash` even when the app-server returns the bridge catalog correctly.
+- On macOS, `setup` offers a reversible local picker patch only when that exact Desktop bundle shape
+  is found. It requires confirmation, `setup --desktop-patch`, or `DSCB_DESKTOP_PATCH=on`, then backs
+  up `app.asar`, `Info.plist`, `_CodeSignature`, and the root executable, updates Electron's ASAR
+  integrity hash, and re-signs the app.
+- `restore` now also restores the Codex Desktop picker patch, so a normal restore returns both
+  `config.toml` and the local app bundle to the previous state.
+- `restore` verifies the restored macOS app bundle and performs a local root-bundle re-sign if an
+  older patch state cannot restore a valid signature directly.
+- `doctor` reports the Desktop picker patch state alongside bridge, key, config, and login status.
+
+### Changed
+
+- Docs now distinguish the Desktop picker allowlist issue from the separate API-key login limitation
+  that prevents ChatGPT-backed history from showing.
+- Public metadata now uses Apache-2.0.
+
 ## 0.1.6
 
 Keeps install and upgrade instructions accurate before the npm registry package is published.

@@ -19,9 +19,22 @@ Almost always one of two things:
 
 ## The picker says Custom or the model submenu is empty
 
-Upgrade to `0.1.5` or newer and re-run `setup`. Older builds wrote a catalog that the Codex CLI could
-parse, but the desktop picker could not match because it also needs the app-facing fields
-`model`, `defaultReasoningEffort`, and `supportedReasoningEfforts`.
+Upgrade to `0.1.7` or newer and re-run `setup`. Current macOS Codex Desktop builds can apply a
+remote allowlist to hidden models before rendering the picker. The app-server can already return the
+DeepSeek catalog correctly, but the renderer may still filter out `deepseek-pro` and
+`deepseek-flash`, leaving the UI at `Custom`.
+
+`setup` detects that Desktop bundle and asks before applying a reversible local picker patch. Run:
+
+```bash
+codex-deepseek-bridge setup
+codex-deepseek-bridge doctor
+```
+
+`doctor` should report `Desktop picker patch: patched`. If it says `needs setup`, run
+`codex-deepseek-bridge setup --desktop-patch` to apply the patch explicitly. If it says
+`unrecognized Desktop build`, your Codex Desktop version changed enough that the bridge refused to
+patch it. Open an issue with the Codex version and the `doctor` output.
 
 If you want to undo everything, run `codex-deepseek-bridge restore` and restart Codex.
 
@@ -64,17 +77,25 @@ Run:
 codex-deepseek-bridge doctor
 ```
 
-If it says `Codex login: api-key`, Codex cannot show ChatGPT-backed history in that login mode. This
-can happen after older bridge setups that signed Codex in with a DeepSeek key, or if this machine was
-already using Codex in API-key mode. DeepSeek models still work in this mode, but ChatGPT cloud
-history needs a ChatGPT sign-in. To recover that history:
+If your existing local API-key/GPT project history disappeared after setup, upgrade to `0.1.8` or
+newer and run `setup` again. Older bridge builds used a new provider id, so Codex Desktop could show
+your projects but filter the chat list to the new DeepSeek provider. Current builds reuse Codex's
+local `codex` provider id while pointing that provider at the bridge, so existing local API-key
+history stays visible without database migration.
+
+ChatGPT cloud-only history is separate. If `doctor` says `Codex login: api-key`, Codex still has no
+ChatGPT token for cloud history endpoints. To recover ChatGPT-backed cloud history while keeping the
+stored DeepSeek key, sign out of API-key auth in Codex, sign in with ChatGPT, then run
+`codex-deepseek-bridge setup` again. If you want a full cleanup instead, including removing the
+stored DeepSeek key, run:
 
 ```bash
 codex-deepseek-bridge restore --logout
 ```
 
 Then sign in to Codex with ChatGPT and run `codex-deepseek-bridge setup` again. Current bridge
-versions keep your Codex login unchanged and use the local stored DeepSeek key for model calls.
+versions keep your Codex login unchanged and use the local stored DeepSeek key for model calls when
+that key still exists.
 
 If you only ran `restore` and did not use `restore --logout`, the stored DeepSeek key remains on this
 machine. Running `setup` again can reuse it without asking you to paste the key again.
@@ -124,7 +145,7 @@ likely cause. The bridge does not rewrite prompts; it reports so you can diagnos
 ## Going back to GPT
 
 ```bash
-codex-deepseek-bridge restore           # restore your previous Codex config
+codex-deepseek-bridge restore           # restore your previous Codex config and Desktop picker patch
 codex-deepseek-bridge restore --logout  # also remove an API-key login from older bridge setups
 ```
 

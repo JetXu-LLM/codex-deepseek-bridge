@@ -5,13 +5,13 @@
 # >>> codex-deepseek-bridge
 # Managed by codex-deepseek-bridge. Run `codex-deepseek-bridge restore` to undo.
 model = "deepseek-pro"
-model_provider = "deepseek_bridge"
+model_provider = "codex"
 model_catalog_json = "/ABSOLUTE/PATH/TO/codex-deepseek-bridge/models.json"
 model_reasoning_effort = "high"
 
-[model_providers.deepseek_bridge]
+[model_providers.codex]
 name = "DeepSeek (via Codex DeepSeek Bridge)"
 base_url = "http://127.0.0.1:8787/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 # <<< codex-deepseek-bridge

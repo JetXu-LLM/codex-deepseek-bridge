@@ -1,6 +1,9 @@
 import { catalogModels, DEFAULT_CODEX_MODEL } from "./models.mjs";
 
-export const BRIDGE_PROVIDER_ID = "deepseek_bridge";
+// Codex Desktop scopes local history by the active provider id. Using Codex's
+// built-in local provider id keeps existing API-key/GPT local history visible
+// while the provider's base URL points at this bridge.
+export const BRIDGE_PROVIDER_ID = "codex";
 export const BRIDGE_PROVIDER_NAME = "DeepSeek (via Codex DeepSeek Bridge)";
 
 export const MANAGED_BLOCK_START = "# >>> codex-deepseek-bridge";

@@ -13,6 +13,7 @@ back. One process serves the bridge and the local report.
 - `src/models.mjs` — the two Codex-facing slugs and their upstream mapping.
 - `src/catalog.mjs` — the two-model catalog and the managed `config.toml` block.
 - `src/install.mjs` — config writer, key storage, login detect-and-adapt, install state, restore.
+- `src/desktop-patch.mjs` — macOS Codex Desktop picker compatibility patch and restore.
 - `src/report.mjs` / `src/prompt-diagnostics.mjs` — the local report and cache diagnostics.
 - `src/update-check.mjs` / `src/upgrade.mjs` / `src/version.mjs` — version, update check, upgrade.
 
@@ -35,6 +36,28 @@ The server binds `127.0.0.1:8787` and serves:
 - `GET /health` — liveness, version, and port
 - `GET /report` and `GET /report/data` — the local usage and cache report
 
+## Desktop picker compatibility
+
+The Codex app-server can read `model_catalog_json` and return `deepseek-pro` plus
+`deepseek-flash`. Some current macOS Codex Desktop renderer builds still filter that list through a
+remote hidden-model allowlist before rendering the picker. When that exact bundle shape is detected,
+interactive `setup` asks before patching the renderer's allowlist gate so visible models are decided
+by the local catalog's `hidden` flag. Automation can opt in with `setup --desktop-patch`.
+
+The patch is conservative:
+
+- It is macOS-only and skipped with `DSCB_DESKTOP_PATCH=off`.
+- It requires interactive confirmation, `setup --desktop-patch`, or `DSCB_DESKTOP_PATCH=on`.
+- It only applies when the known picker filter appears exactly once.
+- It updates the ASAR file integrity metadata in `Info.plist`.
+- It re-signs the local Codex app bundle after patching, without deep-signing nested code.
+- It backs up the root executable too, because macOS signing can rewrite its embedded signature.
+- It records backups so `restore` can put the original app bundle files back.
+- It verifies the restored bundle and performs a local re-sign only if verification fails.
+
+If Codex Desktop later supports custom catalog models without this renderer filter, the patch target
+will be absent and `setup` will leave the app untouched.
+
 ## The generated Codex config
 
 `setup` writes one managed block at the top of `~/.codex/config.toml` (`%USERPROFILE%\.codex` on
@@ -44,17 +67,22 @@ Windows), after backing up any existing file:
 # >>> codex-deepseek-bridge
 # Managed by codex-deepseek-bridge. Run `codex-deepseek-bridge restore` to undo.
 model = "deepseek-pro"
-model_provider = "deepseek_bridge"
+model_provider = "codex"
 model_catalog_json = "<bridgeHome>/models.json"
 model_reasoning_effort = "high"
 
-[model_providers.deepseek_bridge]
+[model_providers.codex]
 name = "DeepSeek (via Codex DeepSeek Bridge)"
 base_url = "http://127.0.0.1:8787/v1"
 wire_api = "responses"
 requires_openai_auth = false
 # <<< codex-deepseek-bridge
 ```
+
+The bridge intentionally uses Codex's local `codex` provider id while it is active. Current Codex
+Desktop builds scope local thread history by provider id, so reusing that id keeps existing local
+API-key/GPT history visible while the provider's `base_url` points at the bridge. `restore` writes
+the original config back from the setup backup.
 
 `<bridgeHome>` defaults to `<CODEX_HOME>/codex-deepseek-bridge`. It also holds `models.json`,
 `deepseek-key`, `install-state.json`, and the daemon's pid and logs.
@@ -93,7 +121,7 @@ At request time the bridge resolves the DeepSeek key in this order:
 
 1. `DEEPSEEK_API_KEY` in the bridge process.
 2. The stored key file `<bridgeHome>/deepseek-key`.
-3. A forwarded bearer, for older configs that still set `requires_openai_auth = true`.
+3. A forwarded bearer, only for older configs that still set `requires_openai_auth = true`.
 
 If `DSCB_BRIDGE_API_KEY` is set (advanced, for exposing the bridge beyond localhost), the incoming
 bearer gates the bridge and the upstream key must come from steps 1–2.
