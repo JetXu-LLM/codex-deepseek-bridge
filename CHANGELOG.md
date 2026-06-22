@@ -5,6 +5,23 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.17
+
+Fixes macOS restore behavior around the Desktop patch and makes the opt-in boundary clearer.
+
+### Fixed
+
+- `restore` no longer ad-hoc re-signs Codex.app when Apple's original signature cannot be verified.
+  It now reports the recovery state clearly so Keychain prompts are not hidden behind another local
+  signature.
+- `restore --purge` keeps bridge backups when Desktop restore still needs them.
+- Plain `setup` remains config-only and does not patch or re-sign Codex.app.
+
+### Changed
+
+- The README now calls out that `--desktop-patch` is an explicit user choice that modifies the
+  locally installed Codex app bundle and signature.
+
 ## 0.1.16
 
 Clearer setup output and honest macOS Desktop-patch guidance, plus a refreshed README.
