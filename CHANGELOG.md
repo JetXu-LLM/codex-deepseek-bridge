@@ -5,6 +5,24 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.21
+
+Completes MCP/plugin tool routing and makes binary upgrades visibly download.
+
+### Fixed
+
+- Namespace MCP and plugin tool calls now return to Codex as the leaf tool name plus its Codex
+  namespace, matching successful native Codex calls such as `name: "js"` with
+  `namespace: "mcp__node_repl"`. This fixes the remaining `unsupported call` failures after `0.1.20`.
+- Streaming and non-streaming tool-call paths now both preserve that namespace.
+- Follow-up tool-loop requests use Codex's returned `namespace + name` pair to recover the unique
+  DeepSeek-facing safe tool name, including ambiguous leaf names such as `search`.
+
+### Changed
+
+- Guided binary upgrades now show simple download progress instead of sitting silently on slow
+  networks.
+
 ## 0.1.20
 
 Fixes MCP/plugin execution in Codex and makes setup harder to run against an old background bridge.

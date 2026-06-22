@@ -95,6 +95,8 @@ Setup is safe to run again. If you start with `setup` and later want the full pi
 - 🖼️ **Ready for multimodal.** A vision seam is already wired in; when DeepSeek ships image input it is a config flag, not a rewrite.
 - ↩️ **One command out.** `restore` removes the managed block and stops the bridge; `restore --purge` clears everything, key included.
 
+Plugin compatibility and DeepSeek cache work will keep improving; star the repo if you want to follow those updates.
+
 ## Show both models in the picker (opt-in)
 
 Config-only setup publishes `deepseek-pro`. To get **both** `deepseek-pro` and `deepseek-flash` with

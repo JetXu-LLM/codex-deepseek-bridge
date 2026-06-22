@@ -309,6 +309,48 @@ function renderSetupUpgradeNotice(fmt, { current, latest, method }) {
   ]);
 }
 
+function formatMiB(bytes) {
+  return `${(Number(bytes || 0) / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+function createDownloadProgressReporter(env, stream = process.stdout) {
+  const enabled = env.DSCB_NO_PROGRESS !== "1";
+  let printed = false;
+  let lastPercent = -1;
+  let lastPrintAt = 0;
+  return ({ asset, received, total, done }) => {
+    if (!enabled) {
+      return;
+    }
+    const label = asset || "release asset";
+    if (!stream.isTTY) {
+      if (!printed) {
+        out(`Downloading ${label}...`);
+        printed = true;
+      }
+      if (done) {
+        out(`Downloaded ${label} (${formatMiB(received)}).`);
+      }
+      return;
+    }
+    const now = Date.now();
+    const percent = total ? Math.floor((received / total) * 100) : -1;
+    if (!done && percent === lastPercent && now - lastPrintAt < 500) {
+      return;
+    }
+    lastPercent = percent;
+    lastPrintAt = now;
+    const progress = total
+      ? `${Math.min(percent, 100)}% (${formatMiB(received)} / ${formatMiB(total)})`
+      : formatMiB(received);
+    if (done) {
+      stream.write(`\rDownloaded ${label} (${formatMiB(received)}).${" ".repeat(24)}\n`);
+      return;
+    }
+    stream.write(`\rDownloading ${label} ${progress}${" ".repeat(24)}`);
+  };
+}
+
 async function maybeUpgradeBeforeSetup(args, rawArgs, env, bridgeHome) {
   if (setupUpgradeCheckSkipped(args, env)) {
     return null;
@@ -363,7 +405,7 @@ async function maybeUpgradeBeforeSetup(args, rawArgs, env, bridgeHome) {
     return spawnSetup("codex-deepseek-bridge", setupCommandArgs(rawArgs), env, { shell: process.platform === "win32" });
   }
 
-  const asset = await downloadVerifiedAsset({ env, version: latest, repo });
+  const asset = await downloadVerifiedAsset({ env, version: latest, repo, onProgress: createDownloadProgressReporter(env) });
   if (!asset.ok) {
     if (asset.reason === "checksum-mismatch") {
       err("Upgrade aborted: the download did not match its checksum. Nothing was changed.");
@@ -1013,7 +1055,7 @@ async function cmdUpgrade(args, env, config) {
       return 1;
     }
   } else if (method === "binary") {
-    const asset = await downloadVerifiedAsset({ env, version: latest, repo });
+    const asset = await downloadVerifiedAsset({ env, version: latest, repo, onProgress: createDownloadProgressReporter(env) });
     if (!asset.ok) {
       if (asset.reason === "checksum-mismatch") {
         err("Upgrade aborted: the download did not match its checksum. Nothing was changed.");

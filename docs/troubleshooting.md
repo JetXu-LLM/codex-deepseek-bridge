@@ -134,7 +134,8 @@ starts the new one, so Codex does not keep talking to an older daemon.
 
 Older builds could return namespace tools in a shape Codex would not execute, such as
 `mcp__node_repljs`, `mcp__computer_uselist_apps`, or even a fully qualified
-`mcp__computer_use__list_apps` where Codex expected the leaf tool name `list_apps`.
+`mcp__computer_use__list_apps` where Codex expected `name: "list_apps"` plus
+`namespace: "mcp__computer_use"`.
 
 ## macOS asks for the `Codex Storage Key` password (sometimes twice)
 

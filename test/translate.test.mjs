@@ -29,7 +29,7 @@ test("wraps Codex custom freeform tools as function tools", () => {
   assert.deepEqual(registry.chatTools[0].function.parameters.required, ["input"]);
 });
 
-test("uses safe upstream names but returns Codex namespace calls as leaf names", () => {
+test("uses safe upstream names but returns Codex namespace calls as leaf names with namespace", () => {
   const registry = buildToolRegistry([
     {
       type: "namespace",
@@ -58,6 +58,7 @@ test("uses safe upstream names but returns Codex namespace calls as leaf names",
   );
   assert.equal(items[1].type, "function_call");
   assert.equal(items[1].name, "js");
+  assert.equal(items[1].namespace, "mcp__node_repl");
 });
 
 test("repairs uniquely mangled namespace tool names returned by DeepSeek", () => {
@@ -94,11 +95,17 @@ test("repairs uniquely mangled namespace tool names returned by DeepSeek", () =>
   );
 
   assert.equal(items[1].name, "js");
+  assert.equal(items[1].namespace, "mcp__node_repl");
   assert.equal(items[2].name, "list_apps");
+  assert.equal(items[2].namespace, "mcp__computer_use");
   assert.equal(items[3].name, "list_openai_docs");
+  assert.equal(items[3].namespace, "mcp__openaiDeveloperDocs");
   assert.equal(items[4].name, "list_apps");
+  assert.equal(items[4].namespace, "mcp__computer_use");
   assert.equal(items[5].name, "list_apps");
+  assert.equal(items[5].namespace, "mcp__computer_use");
   assert.equal(items[6].name, "list_apps");
+  assert.equal(items[6].namespace, "mcp__computer_use");
 });
 
 test("does not repair ambiguous or too-short namespace tool names", () => {
@@ -131,7 +138,9 @@ test("does not repair ambiguous or too-short namespace tool names", () => {
   );
 
   assert.equal(items[1].name, "search");
+  assert.equal(items[1].namespace, undefined);
   assert.equal(items[2].name, "mcp__computer_use");
+  assert.equal(items[2].namespace, undefined);
 });
 
 test("builds DeepSeek request from Responses input and tools", () => {
@@ -310,7 +319,7 @@ test("restores namespace leaf tool calls to their safe upstream names", () => {
   const messages = buildChatMessages(
     {
       input: [
-        { type: "function_call", call_id: "call_1", name: "list_apps", arguments: "{}" },
+        { type: "function_call", call_id: "call_1", name: "list_apps", namespace: "mcp__computer_use", arguments: "{}" },
         { type: "function_call_output", call_id: "call_1", output: "Calculator" },
       ],
     },
@@ -320,6 +329,33 @@ test("restores namespace leaf tool calls to their safe upstream names", () => {
 
   assert.equal(messages[0].tool_calls[0].function.name, "mcp__computer_use__list_apps");
   assert.equal(messages[1].tool_call_id, "call_1");
+});
+
+test("keeps ambiguous leaf tool calls safe when Codex provides namespace", () => {
+  const registry = buildToolRegistry([
+    {
+      type: "namespace",
+      name: "mcp__alpha",
+      tools: [{ type: "function", name: "search", parameters: { type: "object", properties: {} } }],
+    },
+    {
+      type: "namespace",
+      name: "mcp__beta",
+      tools: [{ type: "function", name: "search", parameters: { type: "object", properties: {} } }],
+    },
+  ]);
+  const messages = buildChatMessages(
+    {
+      input: [
+        { type: "function_call", call_id: "call_1", name: "search", namespace: "mcp__beta", arguments: "{}" },
+        { type: "function_call_output", call_id: "call_1", output: "beta-result" },
+      ],
+    },
+    registry,
+    { enableVision: false },
+  );
+
+  assert.equal(messages[0].tool_calls[0].function.name, "mcp__beta__search");
 });
 
 test("maps DeepSeek cache usage fields", () => {

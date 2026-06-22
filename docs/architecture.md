@@ -173,7 +173,8 @@ bearer gates the bridge and the upstream key must come from steps 1–2.
   unwrap to a Codex `custom_tool_call`.
 - Function tools pass through.
 - Namespace tools use unique safe names upstream (for example, `mcp__node_repl__js`) and return the
-  original leaf name to Codex (for example, `js`) so Codex can route MCP and plugin tool calls.
+  original leaf name plus namespace to Codex (for example, `name: "js"` and
+  `namespace: "mcp__node_repl"`) so Codex can route MCP and plugin tool calls.
 - DeepSeek thinking returns `reasoning_content`; the bridge carries it as opaque Codex reasoning
   state for multi-turn continuity. It is compatibility state, not encryption.
 - Usage mapping includes DeepSeek cache fields and `input_tokens_details.cached_tokens`.

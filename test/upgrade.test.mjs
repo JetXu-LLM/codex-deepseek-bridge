@@ -43,6 +43,44 @@ test("downloadVerifiedAsset returns verified bytes on a checksum match", async (
   assert.equal(Buffer.compare(result.bytes, bytes), 0);
 });
 
+test("downloadVerifiedAsset reports streaming download progress", async () => {
+  const partA = Buffer.from("fake-");
+  const partB = Buffer.from("binary-content");
+  const bytes = Buffer.concat([partA, partB]);
+  const good = sha256(bytes);
+  const progress = [];
+  const fetchImpl = async (url) => {
+    if (url.endsWith(".sha256")) {
+      return { ok: true, text: async () => `${good}  asset` };
+    }
+    return {
+      ok: true,
+      headers: { get: (name) => (name === "content-length" ? String(bytes.length) : "") },
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(partA);
+          controller.enqueue(partB);
+          controller.close();
+        },
+      }),
+    };
+  };
+  const result = await downloadVerifiedAsset({
+    version: "2.0.0",
+    platform: "darwin",
+    arch: "arm64",
+    repo: "x/y",
+    fetchImpl,
+    onProgress: (entry) => progress.push(entry),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(progress.at(-1).done, true);
+  assert.equal(progress.at(-1).received, bytes.length);
+  assert.equal(progress.at(-1).total, bytes.length);
+  assert.ok(progress.length >= 3);
+});
+
 test("downloadVerifiedAsset rejects unsupported platforms", async () => {
   const result = await downloadVerifiedAsset({ version: "2.0.0", platform: "linux", arch: "x64", repo: "x/y", fetchImpl: async () => ({ ok: true }) });
   assert.equal(result.ok, false);

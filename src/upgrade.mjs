@@ -31,12 +31,33 @@ export function windowsCmdArg(value) {
   return `"${text.replace(/"/g, "\"\"")}"`;
 }
 
-async function downloadBuffer(url, fetchImpl) {
+async function downloadBuffer(url, fetchImpl, { asset = "", onProgress } = {}) {
   const response = await fetchImpl(url, { headers: { "user-agent": "codex-deepseek-bridge" } });
   if (!response.ok) {
     throw new Error(`download failed (${response.status})`);
   }
-  return Buffer.from(await response.arrayBuffer());
+  const total = Number(response.headers?.get?.("content-length") || 0) || 0;
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let received = 0;
+    onProgress?.({ asset, url, received, total, done: false });
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      const chunk = Buffer.from(value);
+      chunks.push(chunk);
+      received += chunk.length;
+      onProgress?.({ asset, url, received, total, done: false });
+    }
+    onProgress?.({ asset, url, received, total, done: true });
+    return Buffer.concat(chunks);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  onProgress?.({ asset, url, received: buffer.length, total: total || buffer.length, done: true });
+  return buffer;
 }
 
 // Download the release asset, verify its .sha256, and abort on any mismatch.
@@ -48,6 +69,7 @@ export async function downloadVerifiedAsset({
   arch = process.arch,
   repo = releaseRepo(env),
   fetchImpl = fetch,
+  onProgress,
 } = {}) {
   const asset = releaseAssetName(platform, arch);
   if (!asset) {
@@ -56,7 +78,7 @@ export async function downloadVerifiedAsset({
   const url = assetUrl(repo, version, asset);
   let bytes;
   try {
-    bytes = await downloadBuffer(url, fetchImpl);
+    bytes = await downloadBuffer(url, fetchImpl, { asset, onProgress });
   } catch (error) {
     return { ok: false, reason: "download-failed", detail: error instanceof Error ? error.message : String(error) };
   }

@@ -205,18 +205,20 @@ async function handleStreaming({ res, request, deepSeekBody, registry, config, a
         existing.safeName = delta.function.name;
         const resolved = resolveReturnedToolName(delta.function.name, registry);
         existing.originalName = resolved.originalName;
+        existing.namespace = resolved.namespace;
         existing.custom = registry.customNames.has(existing.originalName);
       }
       return existing;
     }
 
     const safeName = delta.function?.name || `tool_${index}`;
-    const { originalName } = resolveReturnedToolName(safeName, registry);
+    const { originalName, namespace } = resolveReturnedToolName(safeName, registry);
     const custom = registry.customNames.has(originalName);
     const state = {
       call_id: delta.id || makeId("call"),
       safeName,
       originalName,
+      namespace,
       custom,
       arguments: "",
       item_id: custom ? makeId("ctc") : makeId("fc"),
@@ -246,14 +248,15 @@ async function handleStreaming({ res, request, deepSeekBody, registry, config, a
             name: state.originalName,
             input: "",
           }
-        : {
-            id: state.item_id,
-            type: "function_call",
-            status: "in_progress",
-            call_id: state.call_id,
-            name: state.originalName,
-            arguments: "",
-          },
+          : {
+              id: state.item_id,
+              type: "function_call",
+              status: "in_progress",
+              call_id: state.call_id,
+              name: state.originalName,
+              ...(state.namespace ? { namespace: state.namespace } : {}),
+              arguments: "",
+            },
     });
   };
 
@@ -342,6 +345,7 @@ async function handleStreaming({ res, request, deepSeekBody, registry, config, a
         status: "completed",
         call_id: state.call_id,
         name: state.originalName,
+        ...(state.namespace ? { namespace: state.namespace } : {}),
         arguments: state.arguments,
       };
       outputItems.push(item);

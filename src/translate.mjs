@@ -122,6 +122,7 @@ export function buildToolRegistry(responseTools = []) {
   const usedNames = new Set();
   const originalToSafe = new Map();
   const safeToOriginal = new Map();
+  const safeToNamespace = new Map();
   const aliasToSafe = new Map();
   const normalizedToSafe = new Map();
   const fuzzyCandidates = [];
@@ -130,10 +131,14 @@ export function buildToolRegistry(responseTools = []) {
 
   const addTool = (originalName, tool, options = {}) => {
     const codexName = options.codexName || originalName;
+    const codexNamespace = options.codexNamespace || "";
     const safeName = sanitizeToolName(originalName, usedNames);
     rememberUnique(originalToSafe, originalName, safeName);
     rememberUnique(originalToSafe, codexName, safeName);
     safeToOriginal.set(safeName, codexName);
+    if (codexNamespace) {
+      safeToNamespace.set(safeName, codexNamespace);
+    }
     const addNormalizedAlias = (name) => rememberUnique(normalizedToSafe, normalizedToolName(name), safeName);
     addNormalizedAlias(safeName);
     addNormalizedAlias(originalName);
@@ -215,13 +220,13 @@ export function buildToolRegistry(responseTools = []) {
             parameters: nested.parameters,
             strict: nested.strict,
           },
-          { codexName: nested.name },
+          { codexName: nested.name, codexNamespace: tool.name },
         );
       }
     }
   }
 
-  return { chatTools, originalToSafe, safeToOriginal, aliasToSafe, normalizedToSafe, fuzzyCandidates, customNames };
+  return { chatTools, originalToSafe, safeToOriginal, safeToNamespace, aliasToSafe, normalizedToSafe, fuzzyCandidates, customNames };
 }
 
 function fuzzyToolNameMatch(rawName, registry) {
@@ -244,25 +249,54 @@ export function resolveReturnedToolName(name, registry) {
   const rawName = String(name || "tool");
   const exactOriginal = registry.safeToOriginal.get(rawName);
   if (exactOriginal) {
-    return { safeName: rawName, originalName: exactOriginal, repaired: false };
+    return {
+      safeName: rawName,
+      originalName: exactOriginal,
+      namespace: registry.safeToNamespace?.get(rawName) || "",
+      repaired: false,
+    };
   }
 
   const aliasSafeName = registry.aliasToSafe?.get(rawName);
   if (typeof aliasSafeName === "string" && registry.safeToOriginal.has(aliasSafeName)) {
-    return { safeName: aliasSafeName, originalName: registry.safeToOriginal.get(aliasSafeName), repaired: true };
+    return {
+      safeName: aliasSafeName,
+      originalName: registry.safeToOriginal.get(aliasSafeName),
+      namespace: registry.safeToNamespace?.get(aliasSafeName) || "",
+      repaired: true,
+    };
   }
 
   const normalizedSafeName = registry.normalizedToSafe?.get(normalizedToolName(rawName));
   if (typeof normalizedSafeName === "string" && registry.safeToOriginal.has(normalizedSafeName)) {
-    return { safeName: normalizedSafeName, originalName: registry.safeToOriginal.get(normalizedSafeName), repaired: true };
+    return {
+      safeName: normalizedSafeName,
+      originalName: registry.safeToOriginal.get(normalizedSafeName),
+      namespace: registry.safeToNamespace?.get(normalizedSafeName) || "",
+      repaired: true,
+    };
   }
 
   const fuzzySafeName = fuzzyToolNameMatch(rawName, registry);
   if (fuzzySafeName && registry.safeToOriginal.has(fuzzySafeName)) {
-    return { safeName: fuzzySafeName, originalName: registry.safeToOriginal.get(fuzzySafeName), repaired: true };
+    return {
+      safeName: fuzzySafeName,
+      originalName: registry.safeToOriginal.get(fuzzySafeName),
+      namespace: registry.safeToNamespace?.get(fuzzySafeName) || "",
+      repaired: true,
+    };
   }
 
-  return { safeName: rawName, originalName: rawName, repaired: false };
+  return { safeName: rawName, originalName: rawName, namespace: "", repaired: false };
+}
+
+function safeNameForCodexTool(name, namespace, registry) {
+  const namespacedName = namespace ? namespaceToolName(namespace, name) : "";
+  const namespacedSafe = namespacedName ? registry.originalToSafe.get(namespacedName) : "";
+  if (namespacedSafe) {
+    return namespacedSafe;
+  }
+  return registry.originalToSafe.get(name) || name;
 }
 
 function textFromPart(part) {
@@ -379,13 +413,14 @@ export function mapToolChoice(toolChoice, registry, thinking) {
   if (!name) {
     return "auto";
   }
+  const namespace = toolChoice?.function?.namespace || toolChoice?.namespace || "";
   if (thinking === "enabled") {
     return "auto";
   }
   return {
     type: "function",
     function: {
-      name: registry.originalToSafe.get(name) || name,
+      name: safeNameForCodexTool(name, namespace, registry),
     },
   };
 }
@@ -433,7 +468,7 @@ export function buildChatMessages(responseRequest, registry, config) {
     }
     if (item.type === "function_call" || item.type === "custom_tool_call") {
       const originalName = item.name || "tool";
-      const safeName = registry.originalToSafe.get(originalName) || originalName;
+      const safeName = safeNameForCodexTool(originalName, item.namespace || "", registry);
       const args = item.type === "custom_tool_call"
         ? JSON.stringify({ input: item.input || "" })
         : item.arguments || "{}";
@@ -549,7 +584,7 @@ export function parseCustomInput(argumentsText) {
 
 export function convertToolCall(toolCall, registry) {
   const safeName = toolCall?.function?.name || "tool";
-  const { originalName } = resolveReturnedToolName(safeName, registry);
+  const { originalName, namespace } = resolveReturnedToolName(safeName, registry);
   const callId = toolCall.id || makeId("call");
   const args = toolCall?.function?.arguments || "";
   if (registry.customNames.has(originalName)) {
@@ -562,7 +597,7 @@ export function convertToolCall(toolCall, registry) {
       input: parseCustomInput(args),
     };
   }
-  return {
+  const item = {
     id: makeId("fc"),
     type: "function_call",
     status: "completed",
@@ -570,6 +605,10 @@ export function convertToolCall(toolCall, registry) {
     name: originalName,
     arguments: args,
   };
+  if (namespace) {
+    item.namespace = namespace;
+  }
+  return item;
 }
 
 export function convertDeepSeekMessageToItems(message, registry) {
