@@ -704,6 +704,16 @@ function tryRestoreBackups(args) {
   }
 }
 
+function missingMacSignatureBackups(state) {
+  return [
+    ["infoPlistBackupPath", "Info.plist backup"],
+    ["codeSignatureBackupPath", "code signature backup"],
+    ["rootExecutableBackupPath", "root executable backup"],
+  ]
+    .filter(([key]) => !state?.[key] || !fs.existsSync(state[key]))
+    .map(([, label]) => label);
+}
+
 function patchFailure(error, restoreReason = "") {
   return {
     status: "error",
@@ -1117,27 +1127,21 @@ export function restoreCodexDesktopPatch({
       return { changed: false, status: "not-managed" };
     }
     try {
-      const verifiedBeforeRepair = verifyCodexApp({ appBundlePath: resolvedBundle, runCommand });
-      let restoreCodesignVerified = verifiedBeforeRepair;
-      if (!restoreCodesignVerified) {
-        signCodexApp({ appBundlePath: resolvedBundle, runCommand });
-        restoreCodesignVerified = verifyCodexApp({ appBundlePath: resolvedBundle, runCommand });
-      }
+      const restoreCodesignVerified = verifyCodexApp({ appBundlePath: resolvedBundle, runCommand });
       writeJson(statePath, {
         ...state,
         restoreCodesignVerified,
-        signatureRepairedAt: restoreCodesignVerified ? new Date().toISOString() : state.signatureRepairedAt,
       });
       return {
-        changed: !verifiedBeforeRepair && restoreCodesignVerified,
-        status: verifiedBeforeRepair ? "not-managed" : restoreCodesignVerified ? "signature-repaired" : "signature-repair-failed",
+        changed: false,
+        status: restoreCodesignVerified ? "not-managed" : "signature-restore-failed",
         appAsarPath: resolvedAsar,
         appBundlePath: resolvedBundle,
       };
     } catch (error) {
       return {
         changed: false,
-        status: "signature-repair-failed",
+        status: "signature-restore-failed",
         appAsarPath: resolvedAsar,
         appBundlePath: resolvedBundle,
         reason: error instanceof Error ? error.message : String(error),
@@ -1147,6 +1151,16 @@ export function restoreCodexDesktopPatch({
 
   if (!state.appAsarBackupPath || !fs.existsSync(state.appAsarBackupPath)) {
     return { changed: false, status: "missing-backup", appAsarPath: resolvedAsar };
+  }
+  const missingBackups = missingMacSignatureBackups(state);
+  if (missingBackups.length) {
+    return {
+      changed: false,
+      status: "missing-signature-backup",
+      appAsarPath: resolvedAsar,
+      appBundlePath: resolvedBundle,
+      missingBackups,
+    };
   }
   if (fs.existsSync(resolvedAsar) && state.patchedAsarSha256 && sha256File(resolvedAsar) !== state.patchedAsarSha256) {
     return {
@@ -1164,27 +1178,12 @@ export function restoreCodexDesktopPatch({
   }
 
   fs.copyFileSync(state.appAsarBackupPath, resolvedAsar);
-  if (state.infoPlistBackupPath && fs.existsSync(state.infoPlistBackupPath)) {
-    fs.copyFileSync(state.infoPlistBackupPath, infoPlistPath);
-  } else if (fs.existsSync(infoPlistPath)) {
-    const headerHash = sha256(readAsarHeader(resolvedAsar).headerBytes);
-    updateInfoPlistIntegrity({ infoPlistPath, headerHash, runCommand });
-  }
-  if (state.codeSignatureBackupPath && fs.existsSync(state.codeSignatureBackupPath)) {
-    fs.rmSync(codeSignaturePath, { recursive: true, force: true });
-    fs.cpSync(state.codeSignatureBackupPath, codeSignaturePath, { recursive: true });
-  } else {
-    signCodexApp({ appBundlePath: resolvedBundle, runCommand });
-  }
-  if (state.rootExecutableBackupPath && fs.existsSync(state.rootExecutableBackupPath)) {
-    fs.copyFileSync(state.rootExecutableBackupPath, rootExecutablePath);
-  }
+  fs.copyFileSync(state.infoPlistBackupPath, infoPlistPath);
+  fs.rmSync(codeSignaturePath, { recursive: true, force: true });
+  fs.cpSync(state.codeSignatureBackupPath, codeSignaturePath, { recursive: true });
+  fs.copyFileSync(state.rootExecutableBackupPath, rootExecutablePath);
 
-  let restoreCodesignVerified = verifyCodexApp({ appBundlePath: resolvedBundle, runCommand });
-  if (!restoreCodesignVerified) {
-    signCodexApp({ appBundlePath: resolvedBundle, runCommand });
-    restoreCodesignVerified = verifyCodexApp({ appBundlePath: resolvedBundle, runCommand });
-  }
+  const restoreCodesignVerified = verifyCodexApp({ appBundlePath: resolvedBundle, runCommand });
 
   const restoredState = {
     ...state,
@@ -1196,9 +1195,10 @@ export function restoreCodexDesktopPatch({
   writeJson(statePath, restoredState);
   return {
     changed: true,
-    status: "restored",
+    status: restoreCodesignVerified ? "restored" : "signature-restore-failed",
     appAsarPath: resolvedAsar,
     appBundlePath: resolvedBundle,
     preRestoreBackupPath,
+    restoreCodesignVerified,
   };
 }

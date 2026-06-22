@@ -80,7 +80,9 @@ The patch is conservative:
 - On Windows writable installs, it patches `resources/app.asar` in place after backing it up.
 - On Windows Store installs, it mirrors the app into a managed writable copy and writes a launcher.
 - It records backups so `restore` can put the original app bundle files back.
-- On macOS, it verifies the restored bundle and performs a local re-sign only if verification fails.
+- On macOS, it verifies the restored bundle and refuses to ad-hoc re-sign during restore. If Apple's
+  original signature cannot be restored, it keeps backups and points the user to reinstall or update
+  Codex.
 
 If Codex Desktop later supports custom catalog models without this renderer filter, the patch target
 will be absent and `setup` will leave the app untouched.

@@ -101,6 +101,9 @@ their real labels in the picker, opt in to the Desktop patch:
 ./codex-deepseek-bridge-macos setup --desktop-patch
 ```
 
+> **User choice.** `--desktop-patch` modifies the official Codex app installed on your machine,
+> including its code bundle and signature; run it only if you choose to make that local change yourself.
+
 ![Codex Desktop picker showing DeepSeek Pro and DeepSeek Flash with reasoning efforts](docs/assets/codex-desktop-deepseek-picker-patched.jpg)
 
 **Why it is needed.** Current Codex Desktop builds load `model_catalog_json` on the app-server side,
@@ -120,7 +123,7 @@ app files so the picker honors the local catalog. It does not download or distri
   `sudo` does not satisfy this — if the patch reports "not writable," that is usually what it means.
 - **Keychain prompts.** Re-signing the bundle locally changes its signature, so macOS may ask to
   allow Keychain access when Codex launches. Click **Always Allow**. Reinstalling or updating Codex
-  restores Apple's original signature.
+  restores Apple's original signature. Plain `setup` does not re-sign Codex.app.
 - **Reversible.** `restore` undoes the patch and stops the bridge.
 
 ```bash
@@ -198,7 +201,8 @@ codex-deepseek-bridge restore       # put Codex back the way it was
 ```
 
 On macOS, `doctor` also flags the signature and Keychain situation when the Desktop patch left Codex
-locally signed, so you know when reinstalling Codex will quiet the launch prompts.
+locally signed, so you know when `restore` can use bridge backups or when reinstalling/updating
+Codex is needed to quiet the launch prompts.
 
 ## Privacy and responsibility
 

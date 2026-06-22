@@ -291,12 +291,21 @@ function renderDesktopPatch(result, fmt, platform) {
       return [head, ...items.map((item) => `  ${item}`)].join("\n");
     }
     case "needs-consent":
-    case "patchable":
-      return indented(
+    case "patchable": {
+      const items = [
         fmt.label.dim(
           "not applied. deepseek-pro is ready now; for deepseek-flash and the full picker, re-run: setup --desktop-patch",
         ),
-      );
+      ];
+      if (platform === "darwin" && result?.macCodeSignature?.adhoc) {
+        items.push(
+          fmt.label.warn(
+            "Codex.app is already signed locally; plain setup did not change it. Restore with bridge backups or reinstall/update Codex to stop Keychain prompts.",
+          ),
+        );
+      }
+      return [head, ...items.map((item) => `  ${item}`)].join("\n");
+    }
     case "disabled":
       return indented(fmt.label.dim("skipped (--no-desktop-patch)"));
     case "unsupported":
@@ -406,7 +415,7 @@ async function maybePatchCodexDesktop(args, env, bridgeHome) {
 
   const explicit = args["desktop-patch"] === true || env.DSCB_DESKTOP_PATCH === "on";
   if (!explicit) {
-    return { status: "needs-consent" };
+    return { ...inspect, status: "needs-consent" };
   }
 
   try {
@@ -633,6 +642,54 @@ function withPurgedBridgeHome(message, purged) {
   return purged ? `${message} Removed bridge state, stored key, logs, and backups.` : message;
 }
 
+function desktopRestoreNeedsState(result) {
+  return new Set([
+    "app-changed",
+    "error",
+    "missing-backup",
+    "missing-signature-backup",
+    "signature-restore-failed",
+  ]).has(result?.status);
+}
+
+function purgeBridgeHomeAfterRestore(bridgeHome, shouldPurge, desktopRestore) {
+  if (!shouldPurge) {
+    return { purged: false, skipped: false };
+  }
+  if (desktopRestoreNeedsState(desktopRestore)) {
+    return { purged: false, skipped: true };
+  }
+  return { purged: purgeBridgeHome(bridgeHome), skipped: false };
+}
+
+function restoreAttentionLine(desktopRestore, purgeResult) {
+  const prefix = purgeResult?.skipped ? "Note: kept bridge backups because restore needs them. " : "Note: ";
+  switch (desktopRestore?.status) {
+    case "signature-restore-failed":
+      return `${prefix}Codex Desktop's original signature could not be verified, and the bridge did not locally re-sign it. Reinstall or update Codex from the official source to stop Keychain prompts.`;
+    case "missing-signature-backup":
+      return `${prefix}Codex Desktop signature backups are missing. Reinstall or update Codex from the official source to stop Keychain prompts.`;
+    case "missing-backup":
+      return `${prefix}Codex Desktop backup is missing. Reinstall or update Codex from the official source to stop Keychain prompts.`;
+    case "app-changed":
+      return `${prefix}Codex Desktop changed after the patch, so the bridge left it alone. Reinstall or update Codex from the official source if Keychain prompts remain.`;
+    case "unmanaged-local-signature":
+      return `${prefix}Codex.app is locally signed but not managed by this bridge. Reinstall or update Codex from the official source to stop Keychain prompts.`;
+    case "error":
+      return `${prefix}the Codex Desktop app could not be modified (${desktopRestore.reason || "unknown error"}). If Keychain prompts remain, reinstall or update Codex.`;
+    default:
+      return purgeResult?.skipped ? "Note: kept bridge backups because the Desktop app was not fully restored." : "";
+  }
+}
+
+function printRestoreMessage(message, stopped, purgeResult, desktopRestore) {
+  out(withPurgedBridgeHome(withStoppedBridge(message, stopped), purgeResult.purged));
+  const attention = restoreAttentionLine(desktopRestore, purgeResult);
+  if (attention) {
+    out(attention);
+  }
+}
+
 function cmdRestore(args, env, config) {
   const bridgeHome = defaultBridgeHome(env);
   const stopped = stopDaemon(config.pidFile);
@@ -645,38 +702,44 @@ function cmdRestore(args, env, config) {
     // restore below is the part that matters most.
     desktopRestore = { changed: false, status: "error", reason: error instanceof Error ? error.message : String(error) };
   }
+  if (desktopRestore.status === "not-managed") {
+    const desktopInspect = inspectCodexDesktopPatch({ env, bridgeHome });
+    if (desktopInspect?.macCodeSignature?.adhoc) {
+      desktopRestore = { ...desktopRestore, status: "unmanaged-local-signature" };
+    }
+  }
   const shouldPurge = args.purge === true;
+  const purgeResult = purgeBridgeHomeAfterRestore(bridgeHome, shouldPurge, desktopRestore);
 
   if (args.logout === true) {
     codexLogout();
     removeStoredKey(bridgeHome);
-    const purged = shouldPurge ? purgeBridgeHome(bridgeHome) : false;
     const message = desktopRestore.changed
       ? "Restored your previous Codex config and Desktop picker, then removed the API-key login plus stored DeepSeek key. Restart Codex."
       : "Restored your previous Codex config and removed the API-key login plus stored DeepSeek key. Restart Codex.";
-    out(withPurgedBridgeHome(withStoppedBridge(message, stopped), purged));
+    printRestoreMessage(message, stopped, purgeResult, desktopRestore);
     return 0;
   }
   if (!result.changed && !desktopRestore.changed) {
-    const purged = shouldPurge ? purgeBridgeHome(bridgeHome) : false;
-    out(withPurgedBridgeHome(withStoppedBridge("No bridge config found. Nothing to restore.", stopped), purged));
+    printRestoreMessage("No bridge config found. Nothing to restore.", stopped, purgeResult, desktopRestore);
     return 0;
   }
-  const purged = shouldPurge ? purgeBridgeHome(bridgeHome) : false;
   if (desktopRestore.status === "signature-repaired") {
     const message = result.changed
       ? "Restored your previous Codex config and repaired the Codex Desktop app signature. Restart Codex to apply."
       : "Repaired the Codex Desktop app signature. Restart Codex to apply.";
-    out(withPurgedBridgeHome(withStoppedBridge(message, stopped), purged));
+    printRestoreMessage(message, stopped, purgeResult, desktopRestore);
+  } else if (desktopRestore.status === "signature-restore-failed") {
+    const message = result.changed
+      ? "Restored your previous Codex config, but Codex Desktop still needs official signature recovery. Restart Codex after reinstalling or updating it."
+      : "Codex Desktop still needs official signature recovery. Restart Codex after reinstalling or updating it.";
+    printRestoreMessage(message, stopped, purgeResult, desktopRestore);
   } else if (desktopRestore.changed && result.changed) {
-    out(withPurgedBridgeHome(withStoppedBridge("Restored your previous Codex config and Desktop picker. Restart Codex to apply.", stopped), purged));
+    printRestoreMessage("Restored your previous Codex config and Desktop picker. Restart Codex to apply.", stopped, purgeResult, desktopRestore);
   } else if (desktopRestore.changed) {
-    out(withPurgedBridgeHome(withStoppedBridge("Restored the Codex Desktop picker. Restart Codex to apply.", stopped), purged));
+    printRestoreMessage("Restored the Codex Desktop picker. Restart Codex to apply.", stopped, purgeResult, desktopRestore);
   } else {
-    out(withPurgedBridgeHome(withStoppedBridge("Restored your previous Codex config. Restart Codex to apply.", stopped), purged));
-  }
-  if (desktopRestore.status === "error") {
-    out("Note: the Codex Desktop app could not be modified (it may be read-only). If its picker still looks patched, reinstall or update Codex.");
+    printRestoreMessage("Restored your previous Codex config. Restart Codex to apply.", stopped, purgeResult, desktopRestore);
   }
   return 0;
 }

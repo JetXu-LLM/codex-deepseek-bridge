@@ -84,8 +84,9 @@ On macOS, the patch touches:
 
 The bridge backs up those files under `<bridgeHome>/desktop-patch/`, updates Electron's ASAR
 integrity hash, and re-signs the app with an ad-hoc local signature. `restore` puts the backups
-back, verifies the app bundle, and re-signs locally again only if the restored signature no longer
-verifies.
+back and verifies the app bundle. It does not ad-hoc re-sign during restore, because that would keep
+macOS Keychain prompts alive. If the restored Apple signature cannot be verified, restore keeps the
+bridge backups and tells you to reinstall or update Codex from the official source.
 
 On Windows writable Electron installs, the patch touches:
 

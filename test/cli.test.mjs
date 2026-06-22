@@ -1,4 +1,5 @@
 import test from "node:test";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +12,48 @@ const bin = path.join(here, "..", "bin", "codex-deepseek-bridge.mjs");
 
 function tempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "dscb-cli-test-"));
+}
+
+function sha256(bytes) {
+  return crypto.createHash("sha256").update(bytes).digest("hex");
+}
+
+function entryFor(content) {
+  const hash = sha256(content);
+  return {
+    size: content.length,
+    offset: "0",
+    integrity: {
+      algorithm: "SHA256",
+      hash,
+      blockSize: 4194304,
+      blocks: [hash],
+    },
+  };
+}
+
+function writeFakeAsar(file, source) {
+  const content = Buffer.from(source, "utf8");
+  const header = {
+    files: {
+      webview: {
+        files: {
+          assets: {
+            files: {
+              "model-list-filter-test.js": entryFor(content),
+            },
+          },
+        },
+      },
+    },
+  };
+  const headerBytes = Buffer.from(JSON.stringify(header), "utf8");
+  const prefix = Buffer.alloc(16);
+  prefix.writeUInt32LE(4, 0);
+  prefix.writeUInt32LE(headerBytes.length + 8, 4);
+  prefix.writeUInt32LE(headerBytes.length + 4, 8);
+  prefix.writeUInt32LE(headerBytes.length, 12);
+  fs.writeFileSync(file, Buffer.concat([prefix, headerBytes, content]));
 }
 
 test("setup --print-prompt prints the canonical prompt", () => {
@@ -59,6 +102,38 @@ test("setup --from-stdin --no-start writes the managed block, catalog, and key",
   // The key must never be echoed to stdout/stderr.
   assert.doesNotMatch(result.stdout, /deepseek-cli-key/);
   assert.doesNotMatch(result.stderr || "", /deepseek-cli-key/);
+});
+
+test("plain setup does not patch a patchable Desktop ASAR", () => {
+  const root = tempRoot();
+  const codexHome = path.join(root, "codex");
+  const bridgeHome = path.join(root, "bridge");
+  const appAsar = path.join(root, "Codex.app", "Contents", "Resources", "app.asar");
+  const source =
+    "function e({authMethod:e,availableModels:t,defaultModel:n,models:r,useHiddenModels:i}){let a=[],o=null,s=i&&e!==`amazonBedrock`;return r.forEach(n=>{if(s?t.has(n.model):!n.hidden){a.push(n)}})}";
+  fs.mkdirSync(path.dirname(appAsar), { recursive: true });
+  writeFakeAsar(appAsar, source);
+  const before = fs.readFileSync(appAsar);
+
+  const result = spawnSync(process.execPath, [bin, "setup", "--from-stdin", "--no-start"], {
+    encoding: "utf8",
+    input: "deepseek-cli-key\n",
+    env: {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      DSCB_HOME: bridgeHome,
+      DSCB_CODEX_APP_ASAR: appAsar,
+      DSCB_UPDATE_CHECK: "off",
+      PATH: "",
+    },
+  });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /not applied\./);
+  assert.deepEqual(fs.readFileSync(appAsar), before);
+
+  const catalog = JSON.parse(fs.readFileSync(path.join(bridgeHome, "models.json"), "utf8"));
+  assert.deepEqual(catalog.models.map((entry) => entry.slug), ["deepseek-pro"]);
 });
 
 test("setup with no key gives guidance and makes no changes", () => {

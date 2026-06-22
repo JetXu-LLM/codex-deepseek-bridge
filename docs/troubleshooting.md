@@ -140,9 +140,14 @@ signature, so the bridge re-signs the bundle locally (ad-hoc). macOS ties Keycha
 signature, so a locally signed Codex looks like a different app and re-prompts — sometimes once per
 Keychain item, which is why you can see two prompts. Click **Always Allow** on each.
 
-Run `codex-deepseek-bridge doctor`; it reports when the Codex signature is `local/ad-hoc`. To remove
-the prompts for good, reinstall or update Codex from the official source to restore Apple's
-signature. Re-running `--desktop-patch` re-signs it again, so the prompts return if you re-patch.
+Plain `setup` does not edit or re-sign Codex.app. Run `codex-deepseek-bridge doctor`; it reports when
+the Codex signature is `local/ad-hoc`.
+
+Run `codex-deepseek-bridge restore` first. When bridge backups are available, restore puts the
+original app files and Apple signature back. If doctor still reports `local/ad-hoc`, or restore says
+the Desktop signature backups are missing, reinstall or update Codex from the official source to
+restore Apple's signature. Re-running `--desktop-patch` re-signs it again, so the prompts return if
+you re-patch.
 
 ## The bridge stopped after a reboot (Windows)
 

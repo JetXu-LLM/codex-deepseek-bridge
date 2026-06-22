@@ -191,7 +191,41 @@ test("patchCodexDesktop backs up the root executable and signs the root bundle o
   assert.ok(verify[1].includes("--deep"));
 });
 
-test("restoreCodexDesktopPatch restores the root executable and re-signs if verification fails", () => {
+test("restoreCodexDesktopPatch restores the official signature without re-signing", () => {
+  const root = tempRoot();
+  const bridgeHome = path.join(root, "bridge");
+  const bundle = writeFakeBundle(
+    root,
+    "function e({authMethod:e,availableModels:t,defaultModel:n,models:r,useHiddenModels:i}){let a=[],o=null,s=i&&e!==`amazonBedrock`;return r.forEach(n=>{if(s?t.has(n.model):!n.hidden){a.push(n)}})}",
+  );
+  let verifyCalls = 0;
+  const commands = [];
+  const runCommand = (command, args) => {
+    commands.push([command, args]);
+    if (command === "codesign" && args.includes("--sign")) {
+      fs.writeFileSync(bundle.rootExecutable, "executable-signed", { mode: 0o755 });
+    }
+    if (command === "codesign" && args.includes("--verify")) {
+      verifyCalls += 1;
+    }
+  };
+
+  const patch = patchCodexDesktop({ appAsarPath: bundle.appAsar, bridgeHome, runCommand, platform: "darwin" });
+  assert.equal(patch.status, "patched");
+  assert.equal(fs.readFileSync(bundle.rootExecutable, "utf8"), "executable-signed");
+
+  const restore = restoreCodexDesktopPatch({ appAsarPath: bundle.appAsar, bridgeHome, runCommand, platform: "darwin" });
+  const signCommands = commands.filter(([command, args]) => command === "codesign" && args.includes("--sign"));
+  const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
+
+  assert.equal(restore.status, "restored");
+  assert.equal(signCommands.length, 1);
+  assert.equal(fs.readFileSync(bundle.rootExecutable, "utf8"), "executable-original");
+  assert.equal(state.active, false);
+  assert.equal(state.restoreCodesignVerified, true);
+});
+
+test("restoreCodexDesktopPatch does not ad-hoc sign when official restore verification fails", () => {
   const root = tempRoot();
   const bridgeHome = path.join(root, "bridge");
   const bundle = writeFakeBundle(
@@ -221,14 +255,14 @@ test("restoreCodexDesktopPatch restores the root executable and re-signs if veri
   const signCommands = commands.filter(([command, args]) => command === "codesign" && args.includes("--sign"));
   const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
 
-  assert.equal(restore.status, "restored");
-  assert.equal(signCommands.length, 2);
-  assert.equal(fs.readFileSync(bundle.rootExecutable, "utf8"), "executable-signed");
+  assert.equal(restore.status, "signature-restore-failed");
+  assert.equal(signCommands.length, 1);
+  assert.equal(fs.readFileSync(bundle.rootExecutable, "utf8"), "executable-original");
   assert.equal(state.active, false);
-  assert.equal(state.restoreCodesignVerified, true);
+  assert.equal(state.restoreCodesignVerified, false);
 });
 
-test("restoreCodexDesktopPatch repairs a stale inactive state with failed signature verification", () => {
+test("restoreCodexDesktopPatch reports stale inactive signature failure without re-signing", () => {
   const root = tempRoot();
   const bridgeHome = path.join(root, "bridge");
   const bundle = writeFakeBundle(
@@ -266,11 +300,10 @@ test("restoreCodexDesktopPatch repairs a stale inactive state with failed signat
   const signCommands = commands.filter(([command, args]) => command === "codesign" && args.includes("--sign"));
   const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
 
-  assert.equal(restore.status, "signature-repaired");
-  assert.equal(restore.changed, true);
-  assert.equal(signCommands.length, 1);
-  assert.equal(state.restoreCodesignVerified, true);
-  assert.ok(state.signatureRepairedAt);
+  assert.equal(restore.status, "signature-restore-failed");
+  assert.equal(restore.changed, false);
+  assert.equal(signCommands.length, 0);
+  assert.equal(state.restoreCodesignVerified, false);
 });
 
 test("patchCodexDesktop patches and restores a writable Windows Electron bundle", () => {
