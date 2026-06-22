@@ -5,7 +5,7 @@ English | [简体中文](./README.zh-CN.md)
   <h1>Codex DeepSeek Bridge</h1>
 
   <p><strong>Run the OpenAI Codex app on DeepSeek.</strong></p>
-  <p>One command sets it up. A tiny local bridge does the rest.<br>Your Codex, your DeepSeek key, your machine.</p>
+  <p>One command sets it up. No ChatGPT subscription needed.<br>Your Codex, your DeepSeek key, your machine.</p>
 
   <br>
 

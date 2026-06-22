@@ -7,7 +7,7 @@
   <h1>Codex DeepSeek Bridge</h1>
 
   <p><strong>让 OpenAI Codex app 使用 DeepSeek。</strong></p>
-  <p>一条命令完成设置。后面的工作由一个很小的本地 bridge 接管。<br>你的 Codex、你的 DeepSeek key、你的机器。</p>
+  <p>一条命令完成设置。不需要 ChatGPT 订阅。<br>你的 Codex、你的 DeepSeek key、你的机器。</p>
 
   <br>
 
