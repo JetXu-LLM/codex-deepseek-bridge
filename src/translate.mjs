@@ -33,10 +33,98 @@ function namespaceToolName(namespace, name) {
   return `${String(namespace || "").replace(/_+$/, "")}__${String(name || "").replace(/^_+/, "")}`;
 }
 
+function normalizedToolName(name) {
+  return String(name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function lengthRatio(a, b) {
+  const max = Math.max(a.length, b.length);
+  if (!max) {
+    return 0;
+  }
+  return Math.min(a.length, b.length) / max;
+}
+
+function levenshteinSimilarity(a, b) {
+  if (a === b) {
+    return 1;
+  }
+  if (!a || !b) {
+    return 0;
+  }
+  const previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  const current = Array.from({ length: b.length + 1 }, () => 0);
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + cost,
+      );
+    }
+    for (let j = 0; j <= b.length; j += 1) {
+      previous[j] = current[j];
+    }
+  }
+  return 1 - previous[b.length] / Math.max(a.length, b.length);
+}
+
+function bigramCounts(value) {
+  const out = new Map();
+  for (let i = 0; i < value.length - 1; i += 1) {
+    const key = value.slice(i, i + 2);
+    out.set(key, (out.get(key) || 0) + 1);
+  }
+  return out;
+}
+
+function diceSimilarity(a, b) {
+  if (a === b) {
+    return 1;
+  }
+  if (a.length < 2 || b.length < 2) {
+    return 0;
+  }
+  const left = bigramCounts(a);
+  const right = bigramCounts(b);
+  let overlap = 0;
+  for (const [key, count] of left) {
+    overlap += Math.min(count, right.get(key) || 0);
+  }
+  return (2 * overlap) / (a.length - 1 + b.length - 1);
+}
+
+function toolNameSimilarity(rawName, candidateName) {
+  const raw = normalizedToolName(rawName);
+  const candidate = normalizedToolName(candidateName);
+  if (!raw || !candidate || lengthRatio(raw, candidate) < 0.65) {
+    return 0;
+  }
+  return 0.65 * levenshteinSimilarity(raw, candidate) + 0.35 * diceSimilarity(raw, candidate);
+}
+
+function rememberUnique(map, key, value) {
+  if (!key) {
+    return;
+  }
+  if (!map.has(key)) {
+    map.set(key, value);
+    return;
+  }
+  if (map.get(key) !== value) {
+    map.set(key, null);
+  }
+}
+
 export function buildToolRegistry(responseTools = []) {
   const usedNames = new Set();
   const originalToSafe = new Map();
   const safeToOriginal = new Map();
+  const aliasToSafe = new Map();
+  const normalizedToSafe = new Map();
+  const fuzzyCandidates = [];
   const customNames = new Set();
   const chatTools = [];
 
@@ -44,6 +132,22 @@ export function buildToolRegistry(responseTools = []) {
     const safeName = sanitizeToolName(originalName, usedNames);
     originalToSafe.set(originalName, safeName);
     safeToOriginal.set(safeName, originalName);
+    const addNormalizedAlias = (name) => rememberUnique(normalizedToSafe, normalizedToolName(name), safeName);
+    addNormalizedAlias(safeName);
+    addNormalizedAlias(originalName);
+    const lastSeparator = safeName.lastIndexOf("__");
+    if (lastSeparator > 0) {
+      const namespaceName = safeName.slice(0, lastSeparator);
+      const leafName = safeName.slice(lastSeparator + 2);
+      const compactName = `${namespaceName}${leafName}`;
+      const namespaceWithoutMcp = namespaceName.replace(/^mcp__/, "");
+      rememberUnique(aliasToSafe, compactName, safeName);
+      addNormalizedAlias(compactName);
+      addNormalizedAlias(leafName);
+      addNormalizedAlias(`${namespaceWithoutMcp}__${leafName}`);
+      addNormalizedAlias(`${namespaceWithoutMcp}${leafName}`);
+    }
+    fuzzyCandidates.push({ safeName, originalName, normalized: normalizedToolName(safeName) });
     if (options.custom) {
       customNames.add(originalName);
     }
@@ -111,7 +215,48 @@ export function buildToolRegistry(responseTools = []) {
     }
   }
 
-  return { chatTools, originalToSafe, safeToOriginal, customNames };
+  return { chatTools, originalToSafe, safeToOriginal, aliasToSafe, normalizedToSafe, fuzzyCandidates, customNames };
+}
+
+function fuzzyToolNameMatch(rawName, registry) {
+  const ranked = (registry.fuzzyCandidates || [])
+    .map((candidate) => ({
+      safeName: candidate.safeName,
+      score: toolNameSimilarity(rawName, candidate.normalized || candidate.safeName),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score);
+  const best = ranked[0];
+  if (!best || best.score < 0.86) {
+    return "";
+  }
+  const second = ranked[1]?.score || 0;
+  return best.score - second >= 0.04 ? best.safeName : "";
+}
+
+export function resolveReturnedToolName(name, registry) {
+  const rawName = String(name || "tool");
+  const exactOriginal = registry.safeToOriginal.get(rawName);
+  if (exactOriginal) {
+    return { safeName: rawName, originalName: exactOriginal, repaired: false };
+  }
+
+  const aliasSafeName = registry.aliasToSafe?.get(rawName);
+  if (typeof aliasSafeName === "string" && registry.safeToOriginal.has(aliasSafeName)) {
+    return { safeName: aliasSafeName, originalName: registry.safeToOriginal.get(aliasSafeName), repaired: true };
+  }
+
+  const normalizedSafeName = registry.normalizedToSafe?.get(normalizedToolName(rawName));
+  if (typeof normalizedSafeName === "string" && registry.safeToOriginal.has(normalizedSafeName)) {
+    return { safeName: normalizedSafeName, originalName: registry.safeToOriginal.get(normalizedSafeName), repaired: true };
+  }
+
+  const fuzzySafeName = fuzzyToolNameMatch(rawName, registry);
+  if (fuzzySafeName && registry.safeToOriginal.has(fuzzySafeName)) {
+    return { safeName: fuzzySafeName, originalName: registry.safeToOriginal.get(fuzzySafeName), repaired: true };
+  }
+
+  return { safeName: rawName, originalName: rawName, repaired: false };
 }
 
 function textFromPart(part) {
@@ -398,7 +543,7 @@ export function parseCustomInput(argumentsText) {
 
 export function convertToolCall(toolCall, registry) {
   const safeName = toolCall?.function?.name || "tool";
-  const originalName = registry.safeToOriginal.get(safeName) || safeName;
+  const { originalName } = resolveReturnedToolName(safeName, registry);
   const callId = toolCall.id || makeId("call");
   const args = toolCall?.function?.arguments || "";
   if (registry.customNames.has(originalName)) {

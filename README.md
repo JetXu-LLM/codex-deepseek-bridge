@@ -85,9 +85,9 @@ Setup is safe to run again. If you start with `setup` and later want the full pi
 
 ## Why this exists
 
-- 🧩 **Your Codex stays your Codex.** It configures the app you already use, so approvals, plugins, skills, and MCP servers keep working — nothing is forked or replaced.
+- 🧩 **Your Codex stays your Codex.** Approvals, plugins, skills, and MCP servers keep working; common plugin tool-name slips are repaired before Codex sees them.
 - 🔒 **Your key stays local.** Read from stdin, stored with owner-only permissions, never printed, logged, or passed as an argument. No telemetry.
-- 📊 **You see every call.** A local, read-only [report](#the-local-report) shows tokens, latency, and DeepSeek cache hits — with no prompt text stored.
+- 📊 **You see every call.** A local, read-only [report](#the-local-report) shows tokens, latency, DeepSeek cache hits, and raw request/response JSON.
 - 🎯 **Cache visibility, not silent edits.** It flags when your prompt prefix drifts and stops hitting DeepSeek's cache. It reports the problem; it never rewrites your prompts.
 - 🖼️ **Ready for multimodal.** A vision seam is already wired in; when DeepSeek ships image input it is a config flag, not a rewrite.
 - ↩️ **One command out.** `restore` removes the managed block and stops the bridge; `restore --purge` clears everything, key included.
@@ -136,8 +136,7 @@ re-run setup without pasting the key again. For a full local cleanup, use `resto
 
 ## The local report
 
-Every call runs through the bridge, so you can see exactly what Codex is doing on DeepSeek without
-storing a single prompt.
+Every call runs through the bridge, so you can see exactly what Codex is doing on DeepSeek.
 
 ![The local DeepSeek report dashboard: totals, cache hit rate, prefix risk, latency, and recent calls](docs/assets/report.png)
 
@@ -146,7 +145,9 @@ offline, and bound to `127.0.0.1`:
 
 - Tokens, latency, and per-model totals for every call.
 - DeepSeek **cache hit rate** plus a **prefix-risk** read on how stable your cached prompt prefix is.
-- A per-call detail view with metadata only — no prompt text is ever recorded.
+- A per-call detail view with a raw JSON link for prompt/request/response payloads. Disable payload
+  logs with `DSCB_LOG_PAYLOADS=0` or `--no-log-payloads` if you need metadata-only logging.
+  These logs are the ground truth for future DeepSeek cache-matching work.
 
 ## How it works
 
@@ -190,6 +191,12 @@ local bridge and then to DeepSeek.
 
 ChatGPT cloud history still requires a ChatGPT sign-in. Local history can be scoped by Codex
 provider id, so `restore` is the reliable way to return to the exact previous setup.
+
+| Before setup | While DeepSeek is active | After `restore` |
+| --- | --- | --- |
+| ChatGPT/OpenAI provider | ChatGPT cloud history needs the ChatGPT sign-in; local OpenAI-provider chats may be hidden if setup reused another provider id | Previous ChatGPT/OpenAI setup returns |
+| Existing custom/API-key provider such as `codex` | Setup may reuse that provider id so those local chats stay visible, now routed through DeepSeek | Previous provider config returns |
+| No reusable provider history | DeepSeek uses its own `deepseek_bridge` provider; other provider histories are unchanged but may be hidden | Previous config returns |
 
 ## Daily use
 

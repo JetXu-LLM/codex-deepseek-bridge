@@ -60,6 +60,80 @@ test("preserves namespace separators for MCP and plugin tools", () => {
   assert.equal(items[1].name, "mcp__node_repl__js");
 });
 
+test("repairs uniquely mangled namespace tool names returned by DeepSeek", () => {
+  const registry = buildToolRegistry([
+    {
+      type: "namespace",
+      name: "mcp__node_repl",
+      tools: [{ type: "function", name: "js", parameters: { type: "object", properties: {} } }],
+    },
+    {
+      type: "namespace",
+      name: "mcp__computer_use",
+      tools: [{ type: "function", name: "list_apps", parameters: { type: "object", properties: {} } }],
+    },
+    {
+      type: "namespace",
+      name: "mcp__openaiDeveloperDocs",
+      tools: [{ type: "function", name: "list_openai_docs", parameters: { type: "object", properties: {} } }],
+    },
+  ]);
+
+  const items = convertDeepSeekMessageToItems(
+    {
+      tool_calls: [
+        { id: "call_1", type: "function", function: { name: "mcp__node_repljs", arguments: "{\"code\":\"1+1\"}" } },
+        { id: "call_2", type: "function", function: { name: "mcp__computer_uselist_apps", arguments: "{}" } },
+        { id: "call_3", type: "function", function: { name: "mcp__openaiDeveloperDocslist_openai_docs", arguments: "{}" } },
+        { id: "call_4", type: "function", function: { name: "list_apps", arguments: "{}" } },
+        { id: "call_5", type: "function", function: { name: "computer_use_list_apps", arguments: "{}" } },
+        { id: "call_6", type: "function", function: { name: "mcp__computer_use__list_app", arguments: "{}" } },
+      ],
+    },
+    registry,
+  );
+
+  assert.equal(items[1].name, "mcp__node_repl__js");
+  assert.equal(items[2].name, "mcp__computer_use__list_apps");
+  assert.equal(items[3].name, "mcp__openaiDeveloperDocs__list_openai_docs");
+  assert.equal(items[4].name, "mcp__computer_use__list_apps");
+  assert.equal(items[5].name, "mcp__computer_use__list_apps");
+  assert.equal(items[6].name, "mcp__computer_use__list_apps");
+});
+
+test("does not repair ambiguous or too-short namespace tool names", () => {
+  const registry = buildToolRegistry([
+    {
+      type: "namespace",
+      name: "mcp__alpha",
+      tools: [{ type: "function", name: "search", parameters: { type: "object", properties: {} } }],
+    },
+    {
+      type: "namespace",
+      name: "mcp__beta",
+      tools: [{ type: "function", name: "search", parameters: { type: "object", properties: {} } }],
+    },
+    {
+      type: "namespace",
+      name: "mcp__computer_use",
+      tools: [{ type: "function", name: "list_apps", parameters: { type: "object", properties: {} } }],
+    },
+  ]);
+
+  const items = convertDeepSeekMessageToItems(
+    {
+      tool_calls: [
+        { id: "call_1", type: "function", function: { name: "search", arguments: "{}" } },
+        { id: "call_2", type: "function", function: { name: "mcp__computer_use", arguments: "{}" } },
+      ],
+    },
+    registry,
+  );
+
+  assert.equal(items[1].name, "search");
+  assert.equal(items[2].name, "mcp__computer_use");
+});
+
 test("builds DeepSeek request from Responses input and tools", () => {
   const request = {
     model: "deepseek-pro",
@@ -172,6 +246,13 @@ test("runtime config maps upstream models from env and keeps vision flag", () =>
   assert.equal(config.upstreamModels["deepseek-pro"], "deepseek-v5-pro");
   assert.equal(config.upstreamModels["deepseek-flash"], "deepseek-v4-flash");
   assert.equal(config.upstreamModel, "deepseek-v5-pro");
+});
+
+test("payload logging is on by default and can be disabled", () => {
+  assert.equal(configFromArgs({}, {}).logPayloads, true);
+  assert.equal(configFromArgs({}, { DSCB_LOG_PAYLOADS: "0" }).logPayloads, false);
+  assert.equal(configFromArgs({ "no-log-payloads": true }, {}).logPayloads, false);
+  assert.equal(configFromArgs({ "log-payloads": true }, { DSCB_LOG_PAYLOADS: "0" }).logPayloads, true);
 });
 
 test("converts DeepSeek tool calls back to Responses output items", () => {

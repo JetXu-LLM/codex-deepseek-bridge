@@ -41,6 +41,9 @@ export function resolveLogDir(env = process.env, override) {
 export function buildRuntimeConfig(env = process.env, overrides = {}) {
   const logDir = resolveLogDir(env, overrides.logDir);
   const upstreamModels = overrides.upstreamModels ?? resolveUpstreamModels(env);
+  const logPayloads = overrides.logPayloads ?? (
+    env.DSCB_LOG_PAYLOADS === undefined ? true : isEnabled(env.DSCB_LOG_PAYLOADS)
+  );
   return {
     host: overrides.host ?? env.HOST ?? "127.0.0.1",
     port: Number(overrides.port ?? env.PORT ?? 8787),
@@ -55,7 +58,7 @@ export function buildRuntimeConfig(env = process.env, overrides = {}) {
     bridgeApiKey: overrides.bridgeApiKey ?? env.DSCB_BRIDGE_API_KEY ?? "",
     quiet: overrides.quiet ?? isEnabled(env.QUIET || "0"),
     logDir,
-    logPayloads: overrides.logPayloads ?? isEnabled(env.DSCB_LOG_PAYLOADS || "0"),
+    logPayloads,
     pidFile: overrides.pidFile ?? env.DSCB_PID_FILE ?? path.join(defaultBridgeHome(env), "bridge.pid"),
     stdoutLog: overrides.stdoutLog ?? env.DSCB_STDOUT_LOG ?? path.join(defaultBridgeHome(env), "bridge.stdout.log"),
     stderrLog: overrides.stderrLog ?? env.DSCB_STDERR_LOG ?? path.join(defaultBridgeHome(env), "bridge.stderr.log"),
@@ -110,7 +113,7 @@ export function configFromArgs(args, env = process.env) {
     bridgeApiKey: args.bridgeApiKey || args["bridge-api-key"],
     quiet: optionalBoolean(args.quiet),
     logDir: args.logDir || args["log-dir"],
-    logPayloads: optionalBoolean(args.logPayloads ?? args["log-payloads"]),
+    logPayloads: args["no-log-payloads"] === true ? false : optionalBoolean(args.logPayloads ?? args["log-payloads"]),
     pidFile: args.pidFile || args["pid-file"],
     stdoutLog: args.stdoutLog || args["stdout-log"],
     stderrLog: args.stderrLog || args["stderr-log"],

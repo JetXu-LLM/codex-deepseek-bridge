@@ -5,7 +5,7 @@ import { catalogModels } from "./models.mjs";
 import { bridgeVersion } from "./version.mjs";
 import { extractBearer, readJsonBody, sendError, sendHtml, sendJson } from "./http.mjs";
 import { buildPromptDiagnostics } from "./prompt-diagnostics.mjs";
-import { reportDataForConfig, reportHtml } from "./report.mjs";
+import { rawCallDataForConfig, rawCallHtml, reportDataForConfig, reportHtml } from "./report.mjs";
 import { dataFromSseFrame, parseSseFrames, writeSse } from "./sse.mjs";
 import {
   buildDeepSeekRequest,
@@ -14,6 +14,7 @@ import {
   createResponseBase,
   makeReasoningItem,
   parseCustomInput,
+  resolveReturnedToolName,
   responseOutputText,
   usageFromDeepSeek,
 } from "./translate.mjs";
@@ -72,6 +73,7 @@ async function handleNonStreaming({ res, request, deepSeekBody, registry, config
       error: `DeepSeek request failed (${upstream.status}): ${redactSecrets(text)}`,
       durationMs: Date.now() - startedAt,
       upstreamStatus: upstream.status,
+      upstreamResponse: text,
     });
     sendError(res, upstream.status, `DeepSeek request failed (${upstream.status}).`, redactSecrets(text).slice(0, 4000));
     return;
@@ -86,6 +88,7 @@ async function handleNonStreaming({ res, request, deepSeekBody, registry, config
       error: "DeepSeek returned invalid JSON.",
       durationMs: Date.now() - startedAt,
       upstreamStatus: upstream.status,
+      upstreamResponse: text,
     });
     sendError(res, 502, "DeepSeek returned invalid JSON", text.slice(0, 2000));
     return;
@@ -96,7 +99,7 @@ async function handleNonStreaming({ res, request, deepSeekBody, registry, config
   response.output = convertDeepSeekMessageToItems(message, registry);
   response.output_text = responseOutputText(response.output);
   response.usage = usageFromDeepSeek(json.usage);
-  logger.requestCompleted({ requestId, response, durationMs: Date.now() - startedAt });
+  logger.requestCompleted({ requestId, response, durationMs: Date.now() - startedAt, upstreamResponse: json });
   sendJson(res, 200, response);
 }
 
@@ -111,6 +114,7 @@ async function handleStreaming({ res, request, deepSeekBody, registry, config, a
       error: `DeepSeek request failed (${status}): ${redactSecrets(text)}`,
       durationMs: Date.now() - startedAt,
       upstreamStatus: status,
+      upstreamResponse: text,
     });
     sendError(res, status, `DeepSeek request failed (${status}).`, redactSecrets(text).slice(0, 4000));
     return;
@@ -133,6 +137,7 @@ async function handleStreaming({ res, request, deepSeekBody, registry, config, a
   const toolStates = new Map();
   const outputItems = [];
   let usage = null;
+  const upstreamChunks = [];
 
   const emit = (event) => {
     sequenceNumber += 1;
@@ -198,14 +203,15 @@ async function handleStreaming({ res, request, deepSeekBody, registry, config, a
       }
       if (delta.function?.name) {
         existing.safeName = delta.function.name;
-        existing.originalName = registry.safeToOriginal.get(delta.function.name) || delta.function.name;
+        const resolved = resolveReturnedToolName(delta.function.name, registry);
+        existing.originalName = resolved.originalName;
         existing.custom = registry.customNames.has(existing.originalName);
       }
       return existing;
     }
 
     const safeName = delta.function?.name || `tool_${index}`;
-    const originalName = registry.safeToOriginal.get(safeName) || safeName;
+    const { originalName } = resolveReturnedToolName(safeName, registry);
     const custom = registry.customNames.has(originalName);
     const state = {
       call_id: delta.id || makeId("call"),
@@ -376,6 +382,7 @@ async function handleStreaming({ res, request, deepSeekBody, registry, config, a
         } catch {
           continue;
         }
+        upstreamChunks.push(chunk);
         if (chunk.usage) {
           usage = usageFromDeepSeek(chunk.usage);
         }
@@ -418,7 +425,12 @@ async function handleStreaming({ res, request, deepSeekBody, registry, config, a
       output_text: textContent,
       usage,
     };
-    logger.requestCompleted({ requestId, response: completed, durationMs: Date.now() - startedAt });
+    logger.requestCompleted({
+      requestId,
+      response: completed,
+      durationMs: Date.now() - startedAt,
+      upstreamResponse: { stream: true, chunks: upstreamChunks },
+    });
     writeSse(res, { type: "response.completed", response: completed });
     res.end();
   } catch (error) {
@@ -483,6 +495,7 @@ async function handleResponses(req, res, config, logger) {
       thinking: deepSeekBody.thinking,
       tools: Array.isArray(deepSeekBody.tools) ? deepSeekBody.tools.length : 0,
     },
+    upstreamRequest: deepSeekBody,
     prompt,
   });
 
@@ -517,6 +530,16 @@ export async function startServer(config) {
       }
       if (req.method === "GET" && url.pathname === "/report/data") {
         sendJson(res, 200, { ...reportDataForConfig(config), bridgeVersion: bridgeVersion() });
+        return;
+      }
+      const rawCallMatch = url.pathname.match(/^\/report\/calls\/([^/]+?)(?:\.json)?$/);
+      if (req.method === "GET" && rawCallMatch) {
+        const data = rawCallDataForConfig(config, decodeURIComponent(rawCallMatch[1]));
+        if (url.pathname.endsWith(".json")) {
+          sendJson(res, data ? 200 : 404, data || { error: "Call not found." });
+        } else {
+          sendHtml(res, data ? 200 : 404, rawCallHtml(data));
+        }
         return;
       }
       if (req.method === "GET" && (url.pathname === "/models" || url.pathname === "/v1/models")) {

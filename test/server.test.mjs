@@ -1,4 +1,7 @@
 import http from "node:http";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildRuntimeConfig } from "../src/config.mjs";
@@ -24,6 +27,10 @@ function readBody(req) {
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
+}
+
+function tempRoot() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "dscb-server-test-"));
 }
 
 test("serves non-streaming Responses requests", async (t) => {
@@ -179,6 +186,60 @@ test("serves streaming Responses events", async (t) => {
   assert.match(text, /response\.completed/);
 });
 
+test("repairs mangled streaming tool names before returning them to Codex", async (t) => {
+  const root = tempRoot();
+  const mock = await startMockDeepSeek(async (req, res) => {
+    await readBody(req);
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+    });
+    res.write("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"mcp__computer_uselist_apps\",\"arguments\":\"{}\"}}]}}]}\n\n");
+    res.write("data: [DONE]\n\n");
+    res.end();
+  });
+  t.after(() => mock.server.close());
+
+  const config = buildRuntimeConfig({}, {
+    host: "127.0.0.1",
+    port: 0,
+    deepseekBaseUrl: mock.baseUrl,
+    apiKey: "test-key",
+    logDir: path.join(root, "logs"),
+    quiet: true,
+  });
+  const bridge = await startServer(config);
+  t.after(() => bridge.close());
+  const port = bridge.address().port;
+
+  const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "deepseek-pro",
+      input: "list apps",
+      stream: true,
+      tools: [
+        {
+          type: "namespace",
+          name: "mcp__computer_use",
+          tools: [{ type: "function", name: "list_apps", parameters: { type: "object", properties: {} } }],
+        },
+      ],
+    }),
+  });
+  const text = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(text, /"name":"mcp__computer_use__list_apps"/);
+  assert.doesNotMatch(text, /mcp__computer_uselist_apps/);
+
+  const report = await (await fetch(`http://127.0.0.1:${port}/report/data`)).json();
+  const raw = await (await fetch(`http://127.0.0.1:${port}/report/calls/${report.calls[0].id}.json`)).json();
+  assert.equal(raw.upstreamResponse.stream, true);
+  assert.equal(raw.upstreamResponse.chunks[0].choices[0].delta.tool_calls[0].function.name, "mcp__computer_uselist_apps");
+});
+
 test("maps none effort to disabled thinking and xhigh to max in the upstream body", async (t) => {
   const bodies = [];
   const mock = await startMockDeepSeek(async (req, res) => {
@@ -219,4 +280,51 @@ test("maps none effort to disabled thinking and xhigh to max in the upstream bod
   assert.equal(bodies[1].model, "deepseek-v4-flash");
   assert.deepEqual(bodies[1].thinking, { type: "enabled" });
   assert.equal(bodies[1].reasoning_effort, "max");
+});
+
+test("serves raw JSON call details with default payload logging", async (t) => {
+  const root = tempRoot();
+  const mock = await startMockDeepSeek(async (req, res) => {
+    await readBody(req);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      choices: [{ message: { content: "raw-ok" } }],
+      usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
+    }));
+  });
+  t.after(() => mock.server.close());
+
+  const config = buildRuntimeConfig({}, {
+    host: "127.0.0.1",
+    port: 0,
+    deepseekBaseUrl: mock.baseUrl,
+    apiKey: "test-key",
+    logDir: path.join(root, "logs"),
+    quiet: true,
+  });
+  const bridge = await startServer(config);
+  t.after(() => bridge.close());
+  const port = bridge.address().port;
+
+  const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "deepseek-pro", input: "hello", stream: false }),
+  });
+  assert.equal(response.status, 200);
+
+  const report = await (await fetch(`http://127.0.0.1:${port}/report/data`)).json();
+  const callId = report.calls[0].id;
+  const raw = await (await fetch(`http://127.0.0.1:${port}/report/calls/${callId}.json`)).json();
+
+  assert.equal(raw.requestId, callId);
+  assert.equal(raw.payloadsStored, true);
+  assert.equal(raw.codexRequest.input, "hello");
+  assert.equal(raw.upstreamRequest.messages[0].content, "hello");
+  assert.equal(raw.codexResponse.output_text, "raw-ok");
+  assert.equal(raw.upstreamResponse.choices[0].message.content, "raw-ok");
+
+  const html = await fetch(`http://127.0.0.1:${port}/report/calls/${callId}`);
+  assert.equal(html.status, 200);
+  assert.match(await html.text(), /raw-ok/);
 });

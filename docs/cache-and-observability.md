@@ -1,8 +1,8 @@
 # Cache And Observability
 
-The bridge records local metadata so you can understand DeepSeek token usage, cache hits and misses,
-latency, model routing, and prompt-prefix stability. It is read-only and local. Prompt text is not
-stored.
+The bridge records local request and response evidence so you can understand DeepSeek token usage,
+cache hits and misses, latency, model routing, and prompt-prefix stability. It is read-only and
+local.
 
 ## DeepSeek context caching
 
@@ -27,14 +27,19 @@ It shows:
 - input and output token totals
 - DeepSeek cache hit and miss tokens, and hit rate by model
 - recent calls with model, reasoning effort, duration, tokens, and cache fields
+- raw request and response JSON for each call
 - prompt-prefix continuity between comparable requests
 - volatile prompt signals such as timestamps, temp paths, and UUIDs
 
 `GET /report/data` returns the same data as JSON, including the running bridge version.
 
-## Prompt privacy
+## Payload logs
 
-By default the diagnostics store no prompt text. They store:
+By default the bridge stores redacted raw request and response payloads locally in the JSONL log.
+This makes it possible to inspect the exact Codex-to-bridge request, the bridge-to-DeepSeek request,
+and the response returned to Codex.
+
+The report also stores metadata that helps compare prompts without reading the full text:
 
 - message hashes
 - content lengths
@@ -44,12 +49,11 @@ By default the diagnostics store no prompt text. They store:
 - stable-prefix hash
 - volatile-signal counts
 
-Set `DSCB_LOG_PAYLOADS=1` only when you want redacted request and response payloads written to
-local disk for debugging.
+Set `DSCB_LOG_PAYLOADS=0` or start with `--no-log-payloads` when you want metadata-only logs.
 
 ## Logs
 
-Metadata logs default to `<bridgeHome>/logs/calls.jsonl` (`<bridgeHome>` is
+Logs default to `<bridgeHome>/logs/calls.jsonl` (`<bridgeHome>` is
 `<CODEX_HOME>/codex-deepseek-bridge`). Disable them with `DSCB_LOG_DIR=off`.
 
 ## Prefix stability

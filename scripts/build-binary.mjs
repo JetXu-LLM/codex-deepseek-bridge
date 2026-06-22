@@ -1,5 +1,5 @@
 // Build a self-contained binary (Node SEA) for the current OS/arch (doc 05).
-// CI runs this on macos-14 (arm64), macos-13 (x64), and windows-latest (x64)
+// CI runs this on macos-14 (arm64), macos-15-intel (x64), and windows-latest (x64)
 // using the official Node from actions/setup-node (its node carries the SEA fuse).
 //
 // Local note: a Homebrew node will NOT work (its shared libnode lacks the SEA

@@ -45,8 +45,8 @@ function printHelp() {
   process.stdout.write(`codex-deepseek-bridge — run Codex on DeepSeek.
 
 Usage:
-  codex-deepseek-bridge setup [--from-stdin] [--port 8787] [--no-start] [--desktop-patch] [--no-desktop-patch] [--print-prompt]
-  codex-deepseek-bridge start [--port 8787]
+  codex-deepseek-bridge setup [--from-stdin] [--port 8787] [--no-start] [--desktop-patch] [--no-desktop-patch] [--log-payloads|--no-log-payloads] [--print-prompt]
+  codex-deepseek-bridge start [--port 8787] [--log-payloads|--no-log-payloads]
   codex-deepseek-bridge report
   codex-deepseek-bridge doctor [--live]
   codex-deepseek-bridge restore [--from-backup <path>] [--logout] [--purge]
@@ -130,8 +130,29 @@ function daemonLaunch(extraArgs) {
   return { execPath: process.execPath, argv: [process.argv[1], "serve", ...extraArgs] };
 }
 
+function daemonArgs(config, port) {
+  const args = ["--port", String(port)];
+  if (config.logPayloads) {
+    args.push("--log-payloads");
+  } else {
+    args.push("--no-log-payloads");
+  }
+  if (config.logDir === "") {
+    args.push("--log-dir", "off");
+  } else if (config.logDir !== undefined) {
+    args.push("--log-dir", config.logDir);
+  }
+  if (config.deepseekBaseUrl) {
+    args.push("--deepseek-base-url", config.deepseekBaseUrl);
+  }
+  if (config.enableVision) {
+    args.push("--vision");
+  }
+  return args;
+}
+
 function launchDaemon(config, port, env) {
-  const { execPath, argv } = daemonLaunch(["--port", String(port)]);
+  const { execPath, argv } = daemonLaunch(daemonArgs(config, port));
   return spawnDaemon({
     pidFile: config.pidFile,
     stdoutLog: config.stdoutLog,
@@ -209,7 +230,7 @@ function historyStatusLine(result) {
     if (result.providerMode === "openai_base_url") {
       return "local history stays visible through the official openai_base_url path";
     }
-    return `local history for provider ${result.providerId} stays visible`;
+    return `provider ${result.providerId} history stays visible; other provider chats return after restore`;
   }
   return "existing chats are unchanged and return after restore; some chats under another provider may be hidden while DeepSeek is active";
 }

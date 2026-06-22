@@ -129,9 +129,9 @@ machine. Running `setup` again can reuse it without asking you to paste the key 
 
 ## MCP or plugin tools say `unsupported call`
 
-Upgrade to `0.1.14` or newer. Older bridge builds flattened namespace tools without the separator
-Codex expects, so calls such as `mcp__node_repl__js` could be returned as `mcp__node_repljs`. The
-tools were present and sent to DeepSeek, but Codex rejected the malformed returned tool name.
+Upgrade to `0.1.18` or newer. Older bridge builds could let DeepSeek return a slightly malformed
+namespace tool name, such as `mcp__node_repljs` or `mcp__computer_uselist_apps`. The tools were
+present and sent to DeepSeek, but Codex rejected the malformed returned tool name.
 
 ## macOS asks for the `Codex Storage Key` password (sometimes twice)
 

@@ -29,6 +29,9 @@ function summarizeOutput(response) {
   return {
     status: response?.status,
     outputTypes: Array.isArray(response?.output) ? response.output.map((item) => item.type) : [],
+    outputNames: Array.isArray(response?.output)
+      ? response.output.map((item) => item?.name).filter(Boolean).slice(0, 40)
+      : [],
     outputTextLength: typeof response?.output_text === "string" ? response.output_text.length : 0,
     usage,
     cache: {
@@ -70,32 +73,39 @@ export function createLogger(config) {
   return {
     enabled: true,
     write,
-    requestStarted({ requestId, request, upstream, prompt }) {
+    requestStarted({ requestId, request, upstream, upstreamRequest, prompt }) {
       write({
         type: "request.started",
         requestId,
         request: summarizeRequest(request),
         upstream,
         prompt,
-        payload: maybeRedactedPayload(request, config.logPayloads),
+        payload: maybeRedactedPayload({
+          codexRequest: request,
+          upstreamRequest,
+        }, config.logPayloads),
       });
     },
-    requestCompleted({ requestId, response, durationMs }) {
+    requestCompleted({ requestId, response, durationMs, upstreamResponse }) {
       write({
         type: "request.completed",
         requestId,
         durationMs,
         response: summarizeOutput(response),
-        payload: maybeRedactedPayload(response, config.logPayloads),
+        payload: maybeRedactedPayload({
+          codexResponse: response,
+          upstreamResponse,
+        }, config.logPayloads),
       });
     },
-    requestFailed({ requestId, error, durationMs, upstreamStatus }) {
+    requestFailed({ requestId, error, durationMs, upstreamStatus, upstreamResponse }) {
       write({
         type: "request.failed",
         requestId,
         durationMs,
         upstreamStatus,
         error: redactSecrets(error instanceof Error ? error.message : String(error)),
+        payload: maybeRedactedPayload({ upstreamResponse }, config.logPayloads),
       });
     },
   };

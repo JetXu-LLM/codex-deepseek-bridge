@@ -5,6 +5,28 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.18
+
+Fixes DeepSeek tool-call name drift and makes the local report useful for request-level debugging.
+
+### Added
+
+- The report now links each call to redacted raw Codex request, DeepSeek request, DeepSeek response,
+  and Codex response JSON. Payload logging is on by default and can be disabled with
+  `DSCB_LOG_PAYLOADS=0` or `--no-log-payloads`.
+
+### Fixed
+
+- DeepSeek-returned tool names are repaired when they uniquely match a known Codex plugin or MCP
+  tool. This covers common namespace separator loss such as `mcp__computer_uselist_apps`, plus
+  high-confidence typos, while leaving ambiguous names unchanged.
+
+### Changed
+
+- Setup output and README history notes now make provider-scoped local history clearer.
+- The README now calls out plugin tool-name repair and the report's role in cache analysis, without
+  changing the setup flow.
+
 ## 0.1.17
 
 Fixes macOS restore behavior around the Desktop patch and makes the opt-in boundary clearer.

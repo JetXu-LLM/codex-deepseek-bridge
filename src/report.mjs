@@ -104,6 +104,8 @@ function callsFromEvents(events) {
       call.usage = event.response?.usage || null;
       call.cache = cacheFromUsage(call.usage, event.response?.cache);
       call.outputTextLength = event.response?.outputTextLength || 0;
+      call.outputTypes = event.response?.outputTypes || [];
+      call.outputNames = event.response?.outputNames || [];
     } else if (event.type === "request.failed") {
       call.status = "failed";
       call.durationMs = event.durationMs;
@@ -203,6 +205,42 @@ function recommendations(summary, prefix) {
   return items;
 }
 
+function withoutPayload(event) {
+  const clone = { ...(event || {}) };
+  delete clone.payload;
+  return clone;
+}
+
+function payloadFrom(events, type) {
+  return events.find((event) => event.type === type)?.payload || null;
+}
+
+export function buildRawCallData(config, events = [], requestId = "") {
+  const matching = events.filter((event) => event?.requestId === requestId);
+  if (!matching.length) {
+    return null;
+  }
+  const startedPayload = payloadFrom(matching, "request.started");
+  const completedPayload = payloadFrom(matching, "request.completed");
+  const failedPayload = payloadFrom(matching, "request.failed");
+  const payloadLoggingEnabled = Boolean(config.logPayloads);
+  const payloadsStored = matching.some((event) => event.payload != null);
+  return {
+    generatedAt: new Date().toISOString(),
+    requestId,
+    payloadLoggingEnabled,
+    payloadsStored,
+    note: payloadsStored
+      ? "Payloads are redacted and local to this machine."
+      : "Raw request and response payloads were not stored for this call. Payload logging may have been disabled with DSCB_LOG_PAYLOADS=0 or --no-log-payloads.",
+    codexRequest: startedPayload?.codexRequest || null,
+    upstreamRequest: startedPayload?.upstreamRequest || null,
+    upstreamResponse: completedPayload?.upstreamResponse ?? failedPayload?.upstreamResponse ?? null,
+    codexResponse: completedPayload?.codexResponse || null,
+    events: matching.map(withoutPayload),
+  };
+}
+
 export function buildReportData(config, events = []) {
   const calls = attachPrefixComparisons(callsFromEvents(events));
   const byModel = new Map();
@@ -280,6 +318,42 @@ export function reportDataForConfig(config) {
     logFileExists: exists,
     ...buildReportData(config, events),
   };
+}
+
+export function rawCallDataForConfig(config, requestId) {
+  const { events } = readReportEvents(config);
+  return buildRawCallData(config, events, requestId);
+}
+
+function htmlEscape(value) {
+  return String(value == null ? "" : value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  })[char]);
+}
+
+export function rawCallHtml(data) {
+  const title = data ? `Raw JSON for ${data.requestId}` : "Raw JSON not found";
+  const body = data
+    ? JSON.stringify(data, null, 2)
+    : JSON.stringify({ error: "Call not found." }, null, 2);
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${htmlEscape(title)}</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; padding: 24px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; background: Canvas; color: CanvasText; }
+    pre { white-space: pre-wrap; word-break: break-word; margin: 0; }
+  </style>
+</head>
+<body><pre>${htmlEscape(body)}</pre></body>
+</html>`;
 }
 
 export function reportHtml() {
@@ -542,7 +616,7 @@ export function reportHtml() {
         </section>
         <section class="card">
           <h2>Recent calls</h2>
-          <p class="card-note">Select a row to view its full metadata. No prompt text is stored or shown.</p>
+          <p class="card-note">Select a row to view metadata, response tool calls, and raw request/response JSON.</p>
           <div id="calls"></div>
         </section>
       </section>
@@ -758,12 +832,21 @@ export function reportHtml() {
         dl('Tools', chips(toolNames))
       ]);
 
+      var responseShape = group('Response shape', [
+        dl('Output types', chips(c.outputTypes || [])),
+        dl('Tool calls', chips(c.outputNames || []))
+      ]);
+
+      var raw = group('Raw JSON', [
+        dl('Payloads', '<a href="/report/calls/' + encodeURIComponent(c.id) + '" target="_blank" rel="noopener">Open raw JSON</a>')
+      ]);
+
       var fail = (c.status === 'failed' || c.error) ? group('Failure', [
         dl('Error', '<span class="err">' + esc(c.error || 'Unknown error') + '</span>'),
         (c.upstreamStatus != null) ? dl('Upstream status', esc(String(c.upstreamStatus))) : ''
       ]) : '';
 
-      return '<div class="detail-inner">' + timing + model + tokens + cacheG + prefixG + volG + shape + fail + '</div>';
+      return '<div class="detail-inner">' + timing + model + tokens + cacheG + prefixG + volG + shape + responseShape + raw + fail + '</div>';
     }
 
     function renderCalls(calls) {
@@ -801,7 +884,7 @@ export function reportHtml() {
         dl('Model mapping', code(cfg.modelAlias) + '<span class="arrow">-&gt;</span>' + code(cfg.upstreamModel)) +
         dl('Local report URL', code('http://localhost:' + port + '/report')) +
         dl('Log file', (data.logFile ? code(data.logFile) : muted('Not configured')) + ' ' + (data.logFileExists ? toneSpan('good', 'exists') : toneSpan('warn', 'not created yet'))) +
-        dl('Payload logging', cfg.logPayloads ? toneSpan('warn', 'On') : toneSpan('good', 'Off')) +
+        dl('Payload logging', cfg.logPayloads ? toneSpan('good', 'On') : toneSpan('warn', 'Off')) +
         dl('Vision input', cfg.enableVision ? toneSpan('good', 'On') : muted('Off')) +
         dl('Bridge bearer auth', cfg.bridgeApiKeyEnabled ? toneSpan('good', 'On') : muted('Off')) +
         dl('Port', code(String(port))) +
