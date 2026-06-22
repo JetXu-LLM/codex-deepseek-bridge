@@ -97,7 +97,7 @@ Setup is safe to run again. If you start with `setup` and later want the full pi
 
 > **Plugins work today.** Browser, Chrome, Computer Use, MCP, and document-style plugins can stay in
 > Codex while DeepSeek handles the model calls. If that unlocks a cheaper Codex workflow for you,
-> please star the repo so more users can find it.
+> please **Star** the repo so more users can find it.
 
 ## Show both models in the picker (opt-in)
 
