@@ -5,6 +5,23 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.22
+
+Stabilizes macOS Desktop patch restore after the official signature is put back.
+
+### Fixed
+
+- `restore` now refuses to modify the macOS Codex app bundle while Codex is still running, leaving
+  Desktop patch backups in place and telling the user to quit Codex before retrying.
+- After restoring the official macOS Codex signature, `restore` now syncs the filesystem, waits a
+  short safety window, and verifies the signature again before reporting success. This avoids a
+  launch-time macOS code-signing race when Codex is opened immediately after restore.
+
+### Changed
+
+- The README now highlights that Browser, Chrome, Computer Use, MCP, and document-style plugins work
+  through the bridge today.
+
 ## 0.1.21
 
 Completes MCP/plugin tool routing and makes binary upgrades visibly download.

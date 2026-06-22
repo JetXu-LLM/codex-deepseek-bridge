@@ -15,6 +15,7 @@ const INFO_PLIST_RELATIVE_PATH = path.join("Contents", "Info.plist");
 const CODE_SIGNATURE_RELATIVE_PATH = path.join("Contents", "_CodeSignature");
 const ROOT_EXECUTABLE_RELATIVE_PATH = path.join("Contents", "MacOS", "Codex");
 const WINDOWS_LAUNCHER_NAME = "Codex-DeepSeek.cmd";
+const DEFAULT_RESTORE_STABILIZATION_MS = 3000;
 
 const EXACT_PATCHES = [
   {
@@ -93,6 +94,39 @@ function patchWorkDir(bridgeHome) {
 
 function defaultRunCommand(command, args) {
   execFileSync(command, args, { stdio: "pipe" });
+}
+
+function defaultRestoreStabilizationMs(env = process.env) {
+  if (env.DSCB_DESKTOP_RESTORE_STABILIZE_MS === "") {
+    return 0;
+  }
+  if (env.DSCB_DESKTOP_RESTORE_STABILIZE_MS != null) {
+    const value = Number(env.DSCB_DESKTOP_RESTORE_STABILIZE_MS);
+    return Number.isFinite(value) && value >= 0 ? value : DEFAULT_RESTORE_STABILIZATION_MS;
+  }
+  return DEFAULT_RESTORE_STABILIZATION_MS;
+}
+
+function sleepSync(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return;
+  }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function defaultIsCodexAppRunning({ platform = process.platform } = {}) {
+  if (platform !== "darwin") {
+    return false;
+  }
+  try {
+    const result = spawnSync("pgrep", ["-x", "Codex"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return result.status === 0 && Boolean(String(result.stdout || "").trim());
+  } catch {
+    return false;
+  }
 }
 
 function defaultWindowsLocalAppData(env = process.env) {
@@ -583,6 +617,25 @@ function verifyCodexApp({ appBundlePath, runCommand = defaultRunCommand }) {
   }
 }
 
+function stabilizeRestoredMacSignature({ appBundlePath, runCommand = defaultRunCommand, stabilizationMs = 0 }) {
+  const initiallyVerified = verifyCodexApp({ appBundlePath, runCommand });
+  if (!Number.isFinite(stabilizationMs) || stabilizationMs <= 0) {
+    return { verified: initiallyVerified, initiallyVerified, stabilized: false, stabilizationMs: 0 };
+  }
+  try {
+    runCommand("/bin/sync", []);
+  } catch {
+    // Best effort only; the second codesign verification is the real gate.
+  }
+  sleepSync(stabilizationMs);
+  return {
+    verified: verifyCodexApp({ appBundlePath, runCommand }),
+    initiallyVerified,
+    stabilized: true,
+    stabilizationMs,
+  };
+}
+
 function copyFileBackup(source, backup) {
   ensureDir(path.dirname(backup));
   fs.copyFileSync(source, backup);
@@ -797,6 +850,7 @@ export function patchCodexDesktop({
   appAsarPath = "",
   appBundlePath = "",
   runCommand = defaultRunCommand,
+  isCodexAppRunning = defaultIsCodexAppRunning,
   platform = process.platform,
 } = {}) {
   if (env.DSCB_DESKTOP_PATCH === "off") {
@@ -864,6 +918,10 @@ export function patchCodexDesktop({
   }
   if (target.status !== "patchable") {
     return { status: target.status, appAsarPath: resolvedAsar, appBundlePath: resolvedBundle };
+  }
+
+  if (platform === "darwin" && isCodexAppRunning({ appBundlePath: resolvedBundle, platform })) {
+    return { status: "app-running", appAsarPath: resolvedAsar, appBundlePath: resolvedBundle };
   }
 
   if (platform === "win32") {
@@ -1040,6 +1098,8 @@ export function restoreCodexDesktopPatch({
   bridgeHome = defaultBridgeHome(env),
   appAsarPath = "",
   runCommand = defaultRunCommand,
+  isCodexAppRunning = defaultIsCodexAppRunning,
+  stabilizationMs = defaultRestoreStabilizationMs(env),
   platform = process.platform,
 } = {}) {
   const statePath = patchStatePath(bridgeHome);
@@ -1170,6 +1230,14 @@ export function restoreCodexDesktopPatch({
       appBundlePath: resolvedBundle,
     };
   }
+  if (statePlatform === "darwin" && isCodexAppRunning({ appBundlePath: resolvedBundle, platform: statePlatform })) {
+    return {
+      changed: false,
+      status: "app-running",
+      appAsarPath: resolvedAsar,
+      appBundlePath: resolvedBundle,
+    };
+  }
 
   const preRestoreBackupPath = path.join(patchWorkDir(bridgeHome), `app.asar.pre-restore.${timestamp()}.bak`);
   ensureDir(path.dirname(preRestoreBackupPath));
@@ -1179,26 +1247,32 @@ export function restoreCodexDesktopPatch({
 
   fs.copyFileSync(state.appAsarBackupPath, resolvedAsar);
   fs.copyFileSync(state.infoPlistBackupPath, infoPlistPath);
+  fs.copyFileSync(state.rootExecutableBackupPath, rootExecutablePath);
   fs.rmSync(codeSignaturePath, { recursive: true, force: true });
   fs.cpSync(state.codeSignatureBackupPath, codeSignaturePath, { recursive: true });
-  fs.copyFileSync(state.rootExecutableBackupPath, rootExecutablePath);
 
-  const restoreCodesignVerified = verifyCodexApp({ appBundlePath: resolvedBundle, runCommand });
+  const signature = stabilizeRestoredMacSignature({ appBundlePath: resolvedBundle, runCommand, stabilizationMs });
 
   const restoredState = {
     ...state,
     active: false,
     restoredAt: new Date().toISOString(),
     preRestoreBackupPath,
-    restoreCodesignVerified,
+    restoreCodesignVerified: signature.verified,
+    restoreCodesignInitiallyVerified: signature.initiallyVerified,
+    restoreCodesignStabilized: signature.stabilized,
+    restoreCodesignStabilizationMs: signature.stabilizationMs,
   };
   writeJson(statePath, restoredState);
   return {
     changed: true,
-    status: restoreCodesignVerified ? "restored" : "signature-restore-failed",
+    status: signature.verified ? "restored" : "signature-restore-failed",
     appAsarPath: resolvedAsar,
     appBundlePath: resolvedBundle,
     preRestoreBackupPath,
-    restoreCodesignVerified,
+    restoreCodesignVerified: signature.verified,
+    restoreCodesignInitiallyVerified: signature.initiallyVerified,
+    restoreCodesignStabilized: signature.stabilized,
+    restoreCodesignStabilizationMs: signature.stabilizationMs,
   };
 }

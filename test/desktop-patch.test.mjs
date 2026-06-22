@@ -167,6 +167,32 @@ test("inspectCodexDesktopPatch reports a patchable ASAR when an explicit path is
   assert.equal(result.filePath, "webview/assets/model-list-filter-test.js");
 });
 
+test("patchCodexDesktop refuses to modify a macOS bundle while Codex is running", () => {
+  const root = tempRoot();
+  const bridgeHome = path.join(root, "bridge");
+  const bundle = writeFakeBundle(
+    root,
+    "function e({authMethod:e,availableModels:t,defaultModel:n,models:r,useHiddenModels:i}){let a=[],o=null,s=i&&e!==`amazonBedrock`;return r.forEach(n=>{if(s?t.has(n.model):!n.hidden){a.push(n)}})}",
+  );
+  const commands = [];
+  const runCommand = (command, args) => {
+    commands.push([command, args]);
+  };
+
+  const result = patchCodexDesktop({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => true,
+    platform: "darwin",
+  });
+  const after = readFakeAsar(bundle.appAsar);
+
+  assert.equal(result.status, "app-running");
+  assert.equal(after.content.toString("utf8").includes(",s=0&&"), false);
+  assert.equal(commands.length, 0);
+});
+
 test("patchCodexDesktop backs up the root executable and signs the root bundle only", () => {
   const root = tempRoot();
   const bridgeHome = path.join(root, "bridge");
@@ -179,7 +205,13 @@ test("patchCodexDesktop backs up the root executable and signs the root bundle o
     commands.push([command, args]);
   };
 
-  const result = patchCodexDesktop({ appAsarPath: bundle.appAsar, bridgeHome, runCommand, platform: "darwin" });
+  const result = patchCodexDesktop({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    platform: "darwin",
+  });
 
   assert.equal(result.status, "patched");
   assert.ok(result.rootExecutableBackupPath);
@@ -210,11 +242,24 @@ test("restoreCodexDesktopPatch restores the official signature without re-signin
     }
   };
 
-  const patch = patchCodexDesktop({ appAsarPath: bundle.appAsar, bridgeHome, runCommand, platform: "darwin" });
+  const patch = patchCodexDesktop({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    platform: "darwin",
+  });
   assert.equal(patch.status, "patched");
   assert.equal(fs.readFileSync(bundle.rootExecutable, "utf8"), "executable-signed");
 
-  const restore = restoreCodexDesktopPatch({ appAsarPath: bundle.appAsar, bridgeHome, runCommand, platform: "darwin" });
+  const restore = restoreCodexDesktopPatch({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    stabilizationMs: 0,
+    platform: "darwin",
+  });
   const signCommands = commands.filter(([command, args]) => command === "codesign" && args.includes("--sign"));
   const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
 
@@ -223,6 +268,84 @@ test("restoreCodexDesktopPatch restores the official signature without re-signin
   assert.equal(fs.readFileSync(bundle.rootExecutable, "utf8"), "executable-original");
   assert.equal(state.active, false);
   assert.equal(state.restoreCodesignVerified, true);
+});
+
+test("restoreCodexDesktopPatch waits and verifies again after restoring a macOS signature", () => {
+  const root = tempRoot();
+  const bridgeHome = path.join(root, "bridge");
+  const bundle = writeFakeBundle(
+    root,
+    "function e({authMethod:e,availableModels:t,defaultModel:n,models:r,useHiddenModels:i}){let a=[],o=null,s=i&&e!==`amazonBedrock`;return r.forEach(n=>{if(s?t.has(n.model):!n.hidden){a.push(n)}})}",
+  );
+  let verifyCalls = 0;
+  const commands = [];
+  const runCommand = (command, args) => {
+    commands.push([command, args]);
+    if (command === "codesign" && args.includes("--verify")) {
+      verifyCalls += 1;
+    }
+  };
+
+  const patch = patchCodexDesktop({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    platform: "darwin",
+  });
+  assert.equal(patch.status, "patched");
+
+  const restore = restoreCodexDesktopPatch({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    stabilizationMs: 1,
+    platform: "darwin",
+  });
+  const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
+
+  assert.equal(restore.status, "restored");
+  assert.equal(restore.restoreCodesignStabilized, true);
+  assert.equal(restore.restoreCodesignStabilizationMs, 1);
+  assert.equal(state.restoreCodesignStabilized, true);
+  assert.equal(commands.some(([command]) => command === "/bin/sync"), true);
+  assert.equal(verifyCalls, 3);
+});
+
+test("restoreCodexDesktopPatch refuses to restore a macOS bundle while Codex is running", () => {
+  const root = tempRoot();
+  const bridgeHome = path.join(root, "bridge");
+  const bundle = writeFakeBundle(
+    root,
+    "function e({authMethod:e,availableModels:t,defaultModel:n,models:r,useHiddenModels:i}){let a=[],o=null,s=i&&e!==`amazonBedrock`;return r.forEach(n=>{if(s?t.has(n.model):!n.hidden){a.push(n)}})}",
+  );
+  const runCommand = () => {};
+
+  const patch = patchCodexDesktop({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    platform: "darwin",
+  });
+  assert.equal(patch.status, "patched");
+
+  const restore = restoreCodexDesktopPatch({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => true,
+    stabilizationMs: 0,
+    platform: "darwin",
+  });
+  const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
+  const after = readFakeAsar(bundle.appAsar);
+
+  assert.equal(restore.status, "app-running");
+  assert.equal(restore.changed, false);
+  assert.equal(state.active, true);
+  assert.equal(after.content.toString("utf8").includes(",s=0&&"), true);
 });
 
 test("restoreCodexDesktopPatch does not ad-hoc sign when official restore verification fails", () => {
@@ -247,11 +370,24 @@ test("restoreCodexDesktopPatch does not ad-hoc sign when official restore verifi
     }
   };
 
-  const patch = patchCodexDesktop({ appAsarPath: bundle.appAsar, bridgeHome, runCommand, platform: "darwin" });
+  const patch = patchCodexDesktop({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    platform: "darwin",
+  });
   assert.equal(patch.status, "patched");
   assert.equal(fs.readFileSync(bundle.rootExecutable, "utf8"), "executable-signed");
 
-  const restore = restoreCodexDesktopPatch({ appAsarPath: bundle.appAsar, bridgeHome, runCommand, platform: "darwin" });
+  const restore = restoreCodexDesktopPatch({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    stabilizationMs: 0,
+    platform: "darwin",
+  });
   const signCommands = commands.filter(([command, args]) => command === "codesign" && args.includes("--sign"));
   const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
 
@@ -296,7 +432,14 @@ test("restoreCodexDesktopPatch reports stale inactive signature failure without 
     }
   };
 
-  const restore = restoreCodexDesktopPatch({ appAsarPath: bundle.appAsar, bridgeHome, runCommand, platform: "darwin" });
+  const restore = restoreCodexDesktopPatch({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    stabilizationMs: 0,
+    platform: "darwin",
+  });
   const signCommands = commands.filter(([command, args]) => command === "codesign" && args.includes("--sign"));
   const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
 

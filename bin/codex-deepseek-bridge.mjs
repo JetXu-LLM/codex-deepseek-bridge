@@ -517,6 +517,21 @@ function renderDesktopPatch(result, fmt, platform) {
     case "missing-code-signature":
     case "missing-root-executable":
       return indented(fmt.label.dim("skipped: the Codex Desktop bundle looks incomplete"));
+    case "app-running":
+      return [
+        head,
+        fmt.box([
+          "Action needed: quit Codex first.",
+          "",
+          "The Desktop patch changes Codex app files, so the bridge left them untouched while Codex was running.",
+          "",
+          "To enable it:",
+          "  1. Quit Codex completely",
+          "  2. Re-run: codex-deepseek-bridge setup --desktop-patch",
+          "",
+          "Custom still routes to deepseek-pro without the patch.",
+        ], { tone: "red" }),
+      ].join("\n");
     case "not-writable":
       return [head, fmt.box(notWritableCallout(platform), { tone: "red" })].join("\n");
     case "error": {
@@ -850,6 +865,7 @@ function withPurgedBridgeHome(message, purged) {
 function desktopRestoreNeedsState(result) {
   return new Set([
     "app-changed",
+    "app-running",
     "error",
     "missing-backup",
     "missing-signature-backup",
@@ -878,6 +894,8 @@ function restoreAttentionLine(desktopRestore, purgeResult) {
       return `${prefix}Codex Desktop backup is missing. Reinstall or update Codex from the official source to stop Keychain prompts.`;
     case "app-changed":
       return `${prefix}Codex Desktop changed after the patch, so the bridge left it alone. Reinstall or update Codex from the official source if Keychain prompts remain.`;
+    case "app-running":
+      return `${prefix}Codex was still running, so the bridge left the Desktop app files unchanged. Quit Codex completely, then re-run restore.`;
     case "unmanaged-local-signature":
       return `${prefix}Codex.app is locally signed but not managed by this bridge. Reinstall or update Codex from the official source to stop Keychain prompts.`;
     case "error":
@@ -898,7 +916,7 @@ function printRestoreMessage(message, stopped, purgeResult, desktopRestore) {
 function desktopRestoreLine(desktopRestore, fmt) {
   switch (desktopRestore?.status) {
     case "restored":
-      return fmt.label.ok("restored");
+      return fmt.label.ok(desktopRestore.restoreCodesignStabilized ? "restored; signature settled" : "restored");
     case "signature-repaired":
       return fmt.label.ok("official signature repaired");
     case "not-managed":
@@ -909,6 +927,7 @@ function desktopRestoreLine(desktopRestore, fmt) {
     case "missing-signature-backup":
     case "signature-restore-failed":
     case "app-changed":
+    case "app-running":
     case "error":
       return fmt.label.warn("needs attention; see note below");
     default:
@@ -921,6 +940,11 @@ function renderRestoreReport(fmt, { result, desktopRestore, stopped, purgeResult
   const desktopChanged = Boolean(desktopRestore?.changed);
   const anyChanged = configChanged || desktopChanged || logout || purgeResult?.purged;
   const kv = (key, value) => `${key.padEnd(8)} ${value}`;
+  const nextSteps = desktopRestore?.status === "app-running"
+    ? ["1. Quit Codex completely", "2. Re-run: codex-deepseek-bridge restore"]
+    : anyChanged
+      ? ["1. Restart Codex", "2. Open Codex with your previous configuration"]
+      : ["No restart needed unless Codex was already open."];
   const blocks = [
     fmt.title(anyChanged ? "Codex DeepSeek Bridge  -  restore complete" : "Codex DeepSeek Bridge  -  nothing to restore"),
     fmt.section("Codex", [
@@ -940,9 +964,7 @@ function renderRestoreReport(fmt, { result, desktopRestore, stopped, purgeResult
     blocks.push(fmt.section("Note", [fmt.label.warn(attention)]));
   }
 
-  blocks.push(fmt.section("Next steps", anyChanged
-    ? ["1. Restart Codex", "2. Open Codex with your previous configuration"]
-    : ["No restart needed unless Codex was already open."]));
+  blocks.push(fmt.section("Next steps", nextSteps));
 
   return blocks.filter(Boolean).join("\n\n");
 }
