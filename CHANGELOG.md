@@ -5,6 +5,24 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.23
+
+Makes Desktop restore wait for macOS launch acceptance and makes the Windows quick start harder to
+break on interrupted downloads.
+
+### Fixed
+
+- macOS `restore` now waits for both code-signing verification and Gatekeeper execute assessment
+  before reporting success, so opening Codex immediately after restore is less likely to hit a
+  `Taskgated Invalid Signature` launch failure.
+- Older inactive restore state is rechecked once after upgrade, so machines restored by `0.1.22`
+  still get the stronger macOS acceptance check.
+
+### Changed
+
+- The Windows PowerShell quick start now uses `curl.exe` with failure checking, progress output, and
+  a small file-size guard before running the downloaded `.exe`.
+
 ## 0.1.22
 
 Stabilizes macOS Desktop patch restore after the official signature is put back.
