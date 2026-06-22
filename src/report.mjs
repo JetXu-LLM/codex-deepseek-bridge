@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { updateCacheFile, readCachedUpdate } from "./update-check.mjs";
 import { buildCacheReport, defaultLogFile, loadJsonl } from "./cache-report.mjs";
 import { comparePromptDiagnostics } from "./prompt-diagnostics.mjs";
 
@@ -311,11 +312,19 @@ export function readReportEvents(config) {
   return { file, events: loadJsonl(file), exists: true };
 }
 
-export function reportDataForConfig(config) {
+function updateForConfig(config, currentVersion) {
+  if (!config.bridgeHome || !currentVersion) {
+    return { updateAvailable: false };
+  }
+  return readCachedUpdate({ cacheFile: updateCacheFile(config.bridgeHome), currentVersion }) || { updateAvailable: false };
+}
+
+export function reportDataForConfig(config, { currentVersion } = {}) {
   const { file, events, exists } = readReportEvents(config);
   return {
     logFile: file,
     logFileExists: exists,
+    update: updateForConfig(config, currentVersion),
     ...buildReportData(config, events),
   };
 }
@@ -436,6 +445,10 @@ export function reportHtml() {
     .btn:hover { background: var(--surface-2); border-color: var(--accent); color: var(--ink); }
     .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+    .update-notice { border: 1px solid color-mix(in srgb, var(--warn) 42%, var(--line)); border-radius: 11px; background: color-mix(in srgb, var(--warn) 9%, var(--surface)); padding: 10px 14px; color: var(--ink-soft); box-shadow: var(--shadow); }
+    .update-notice details { margin: 0; }
+    .update-notice summary { cursor: pointer; font-weight: 620; color: var(--ink); }
+    .update-notice p { margin: 8px 0 0; color: var(--muted); font-size: 12.5px; }
 
     main { padding: 26px 0 56px; }
     .stack-v { display: flex; flex-direction: column; gap: 22px; }
@@ -573,6 +586,7 @@ export function reportHtml() {
   <main>
     <div class="wrap stack-v">
       <p id="loadError" style="display:none"></p>
+      <section id="updateNotice" class="update-notice" style="display:none"></section>
 
       <section id="emptyState" class="card empty-banner" style="display:none">
         <h2>No calls recorded yet</h2>
@@ -891,6 +905,23 @@ export function reportHtml() {
         '</dl>';
     }
 
+    function renderUpdateNotice(data) {
+      var update = data.update || {};
+      var el = document.getElementById('updateNotice');
+      if (!update.updateAvailable) {
+        el.style.display = 'none';
+        el.innerHTML = '';
+        return;
+      }
+      var current = data.bridgeVersion ? 'v' + data.bridgeVersion : 'your version';
+      var latest = update.latest ? 'v' + update.latest : 'a newer version';
+      el.innerHTML =
+        '<details><summary>Update available: ' + esc(latest) + ' (you have ' + esc(current) + ')</summary>' +
+        '<p>Run your bridge binary again, for example <code>./codex-deepseek-bridge-macos setup</code>. It will ask before upgrading, keep local logs and report data, then continue setup automatically.</p>' +
+        '</details>';
+      el.style.display = '';
+    }
+
     function renderRecs(data) {
       var p = data.prefix || {};
       var recs = Array.isArray(data.recommendations) ? data.recommendations : [];
@@ -936,6 +967,7 @@ export function reportHtml() {
       var verEl = document.getElementById('version');
       if (data.bridgeVersion) { verEl.textContent = 'v' + data.bridgeVersion; verEl.style.display = ''; }
       else { verEl.style.display = 'none'; }
+      renderUpdateNotice(data);
 
       var empty = num(s.totalCalls) === 0;
       document.getElementById('dashboard').style.display = empty ? 'none' : '';

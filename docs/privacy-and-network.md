@@ -10,8 +10,8 @@ At runtime, outbound network access is limited to:
 - DeepSeek API requests needed to answer Codex model calls.
 - Public GitHub release metadata for the optional update check.
 
-The update check reads only `releases/latest`, uploads nothing, and never auto-installs. Turn it off
-with `DSCB_UPDATE_CHECK=off` or `DO_NOT_TRACK=1`.
+The update check reads only `releases/latest`, uploads nothing, and never installs an update without
+your confirmation. Turn it off with `DSCB_UPDATE_CHECK=off` or `DO_NOT_TRACK=1`.
 
 ## Localhost by default
 

@@ -75,6 +75,7 @@ Invoke-WebRequest -Uri "https://github.com/JetXu-LLM/codex-deepseek-bridge/relea
 `setup` 会在 terminal 里要求你输入 DeepSeek API key。这个 key 不会被回显、打印、记录日志，
 也不会作为命令行参数传入。设置完成后，它会打印一段简短摘要：配置了什么、发布了哪些模型、
 以及你还需要做什么。然后你重启 Codex。
+如果有更新的 bridge 版本，`setup` 会先询问是否升级，并保留你本机保存的 key、日志和 report 数据。
 
 默认情况下，Codex 会使用 `deepseek-pro`。当前 Codex Desktop 还不会在界面里渲染 custom model
 的真实名字，所以 composer 会在 reasoning effort 旁边显示 `Custom`。上面的截图就是
@@ -218,7 +219,7 @@ codex-deepseek-bridge restore       # 把 Codex 恢复到之前的状态
 
 - bridge 会把模型请求发送给 DeepSeek。
 - 它会把你的 DeepSeek key 以 owner-only 权限保存在本机。
-- 它可以选择性检查 GitHub releases 是否有更新。
+- 它可以选择性检查 GitHub releases 是否有更新，并会先询问再安装更新。
 - 它不会上传 telemetry。
 - 它不会分发修改版 Codex app。
 

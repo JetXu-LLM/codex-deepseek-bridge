@@ -39,12 +39,14 @@ export function resolveLogDir(env = process.env, override) {
 }
 
 export function buildRuntimeConfig(env = process.env, overrides = {}) {
+  const bridgeHome = overrides.bridgeHome ?? defaultBridgeHome(env);
   const logDir = resolveLogDir(env, overrides.logDir);
   const upstreamModels = overrides.upstreamModels ?? resolveUpstreamModels(env);
   const logPayloads = overrides.logPayloads ?? (
     env.DSCB_LOG_PAYLOADS === undefined ? true : isEnabled(env.DSCB_LOG_PAYLOADS)
   );
   return {
+    bridgeHome,
     host: overrides.host ?? env.HOST ?? "127.0.0.1",
     port: Number(overrides.port ?? env.PORT ?? 8787),
     deepseekBaseUrl: overrides.deepseekBaseUrl ?? env.DEEPSEEK_BASE_URL ?? DEFAULT_DEEPSEEK_BASE_URL,
@@ -54,14 +56,14 @@ export function buildRuntimeConfig(env = process.env, overrides = {}) {
     modelAlias: overrides.modelAlias ?? DEFAULT_MODEL_ALIAS,
     enableVision: overrides.enableVision ?? isEnabled(env.DEEPSEEK_ENABLE_VISION || "0"),
     apiKey: overrides.apiKey ?? env.DEEPSEEK_API_KEY ?? "",
-    storedKeyPath: overrides.storedKeyPath ?? storedKeyPath(env),
+    storedKeyPath: overrides.storedKeyPath ?? path.join(bridgeHome, STORED_KEY_FILE),
     bridgeApiKey: overrides.bridgeApiKey ?? env.DSCB_BRIDGE_API_KEY ?? "",
     quiet: overrides.quiet ?? isEnabled(env.QUIET || "0"),
     logDir,
     logPayloads,
-    pidFile: overrides.pidFile ?? env.DSCB_PID_FILE ?? path.join(defaultBridgeHome(env), "bridge.pid"),
-    stdoutLog: overrides.stdoutLog ?? env.DSCB_STDOUT_LOG ?? path.join(defaultBridgeHome(env), "bridge.stdout.log"),
-    stderrLog: overrides.stderrLog ?? env.DSCB_STDERR_LOG ?? path.join(defaultBridgeHome(env), "bridge.stderr.log"),
+    pidFile: overrides.pidFile ?? env.DSCB_PID_FILE ?? path.join(bridgeHome, "bridge.pid"),
+    stdoutLog: overrides.stdoutLog ?? env.DSCB_STDOUT_LOG ?? path.join(bridgeHome, "bridge.stdout.log"),
+    stderrLog: overrides.stderrLog ?? env.DSCB_STDERR_LOG ?? path.join(bridgeHome, "bridge.stderr.log"),
   };
 }
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assetUrl, downloadVerifiedAsset, releaseAssetName, sha256 } from "../src/upgrade.mjs";
+import { assetUrl, downloadVerifiedAsset, releaseAssetName, sha256, windowsCmdArg } from "../src/upgrade.mjs";
 
 test("releaseAssetName maps the shipped targets only", () => {
   assert.equal(releaseAssetName("darwin", "arm64"), "codex-deepseek-bridge-macos");
@@ -47,4 +47,10 @@ test("downloadVerifiedAsset rejects unsupported platforms", async () => {
   const result = await downloadVerifiedAsset({ version: "2.0.0", platform: "linux", arch: "x64", repo: "x/y", fetchImpl: async () => ({ ok: true }) });
   assert.equal(result.ok, false);
   assert.equal(result.reason, "unsupported-platform");
+});
+
+test("windowsCmdArg quotes restart arguments for the upgrade helper", () => {
+  assert.equal(windowsCmdArg("--desktop-patch"), "--desktop-patch");
+  assert.equal(windowsCmdArg("https://example.com/a?b=1&c=2"), "\"https://example.com/a?b=1&c=2\"");
+  assert.equal(windowsCmdArg("has space"), "\"has space\"");
 });

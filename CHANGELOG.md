@@ -5,6 +5,23 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.19
+
+Makes future setup runs notice new releases before changing Codex.
+
+### Added
+
+- `setup` and `setup --desktop-patch` now check the latest GitHub release first. On an interactive
+  terminal they ask `Upgrade before setup? [Y/n]`; after a verified binary upgrade, setup continues
+  with the same arguments.
+- The local report shows a small update notice from the bridge's cached release check and points
+  users back to `setup` for the guided upgrade flow.
+
+### Changed
+
+- Binary upgrades keep the existing bridge home, stored key, logs, and report data. They only replace
+  the bridge executable and then rerun the requested setup flow.
+
 ## 0.1.18
 
 Fixes DeepSeek tool-call name drift and makes the local report useful for request-level debugging.

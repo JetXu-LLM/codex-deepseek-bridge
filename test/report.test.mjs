@@ -1,7 +1,11 @@
 import test from "node:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import assert from "node:assert/strict";
 import { buildPromptDiagnostics } from "../src/prompt-diagnostics.mjs";
-import { buildReportData } from "../src/report.mjs";
+import { buildReportData, reportDataForConfig, reportHtml } from "../src/report.mjs";
+import { updateCacheFile } from "../src/update-check.mjs";
 
 test("prompt diagnostics compare prefix continuity without storing prompt text", () => {
   const firstPrompt = buildPromptDiagnostics({
@@ -86,4 +90,26 @@ test("prompt diagnostics compare prefix continuity without storing prompt text",
   assert.equal(data.prefix.comparedCalls, 1);
   assert.equal(data.prefix.lowRisk, 1);
   assert.equal(data.calls[0].prefix.previousPromptCovered, 1);
+});
+
+test("report data exposes cached update availability", () => {
+  const bridgeHome = fs.mkdtempSync(path.join(os.tmpdir(), "dscb-report-update-test-"));
+  fs.writeFileSync(
+    updateCacheFile(bridgeHome),
+    `${JSON.stringify({ lastCheck: "2026-06-22T00:00:00.000Z", latest: "9.0.0" })}\n`,
+  );
+
+  const data = reportDataForConfig(
+    {
+      bridgeHome,
+      logDir: path.join(bridgeHome, "logs"),
+      modelAlias: "deepseek-pro",
+      upstreamModel: "deepseek-v4-pro",
+    },
+    { currentVersion: "1.0.0" },
+  );
+
+  assert.equal(data.update.updateAvailable, true);
+  assert.equal(data.update.latest, "9.0.0");
+  assert.match(reportHtml(), /updateNotice/);
 });

@@ -145,6 +145,10 @@ codex-deepseek-bridge upgrade           # update to the latest release and resta
 codex-deepseek-bridge upgrade --check   # print installed and latest versions, change nothing
 ```
 
+`setup` also checks the latest release before changing Codex. If a newer version exists, it asks
+`Upgrade before setup? [Y/n]`; after a verified binary upgrade, it keeps your bridge home, logs, and
+report data, then continues the same setup command.
+
 `upgrade` updates per install method:
 
 - **GitHub npm install:** prints `npm install -g github:JetXu-LLM/codex-deepseek-bridge`.
@@ -158,8 +162,9 @@ patch only if it was already managed by the bridge or `DSCB_DESKTOP_PATCH=on` is
 the bridge. If the model catalog or Desktop patch changed, restart Codex.
 
 The running bridge can also notice a newer release on its own and surface it in the report and in
-`version` / `doctor`. It reads only public GitHub release metadata, uploads nothing, and never
-auto-installs. Turn it off with `DSCB_UPDATE_CHECK=off` or `DO_NOT_TRACK=1`.
+`version` / `doctor`. It reads only public GitHub release metadata and uploads nothing. When the
+report shows an update, re-run `setup` to use the guided upgrade flow. Turn it off with
+`DSCB_UPDATE_CHECK=off` or `DO_NOT_TRACK=1`.
 
 ## When Codex or DeepSeek changes
 

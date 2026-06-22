@@ -23,6 +23,14 @@ export function sha256(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
 }
 
+export function windowsCmdArg(value) {
+  const text = String(value);
+  if (/^[A-Za-z0-9_./:=+-]+$/.test(text)) {
+    return text;
+  }
+  return `"${text.replace(/"/g, "\"\"")}"`;
+}
+
 async function downloadBuffer(url, fetchImpl) {
   const response = await fetchImpl(url, { headers: { "user-agent": "codex-deepseek-bridge" } });
   if (!response.ok) {
@@ -78,12 +86,13 @@ export function stageBinarySwap({ currentPath, bytes, platform = process.platfor
 
   if (platform === "win32") {
     const helper = path.join(dir, "dscb-upgrade.cmd");
+    const restart = restartArgs.map(windowsCmdArg).join(" ");
     const script = [
       "@echo off",
       "ping 127.0.0.1 -n 2 >nul",
       `move /Y "${currentPath}" "${prevPath}" >nul`,
       `move /Y "${newPath}" "${currentPath}" >nul`,
-      `start "" "${currentPath}" ${restartArgs.join(" ")}`,
+      `start "" "${currentPath}" ${restart}`,
     ].join("\r\n");
     fs.writeFileSync(helper, script);
     const child = spawn("cmd", ["/c", helper], { detached: true, stdio: "ignore" });

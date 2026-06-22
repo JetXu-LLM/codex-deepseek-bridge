@@ -73,6 +73,7 @@ Invoke-WebRequest -Uri "https://github.com/JetXu-LLM/codex-deepseek-bridge/relea
 `setup` asks for your DeepSeek API key in the terminal. It is not echoed, printed, logged, or taken
 as a command-line argument. When setup finishes it prints a short summary — what was configured,
 which models are published, and any action you still need to take — then you restart Codex.
+If a newer bridge release is available, `setup` asks before upgrading and keeps your stored key, logs, and report data.
 
 By default this keeps Codex on `deepseek-pro`. The composer shows `Custom` next to your reasoning
 effort (the screenshot up top is `deepseek-pro` running at max thinking) because current Codex Desktop
@@ -217,7 +218,7 @@ Codex is needed to quiet the launch prompts.
 
 - The bridge sends model requests to DeepSeek.
 - It stores your DeepSeek key locally with owner-only permissions.
-- It can optionally check GitHub releases for updates.
+- It can optionally check GitHub releases for updates and asks before installing one.
 - It does not upload telemetry.
 - It does not distribute a modified Codex app.
 

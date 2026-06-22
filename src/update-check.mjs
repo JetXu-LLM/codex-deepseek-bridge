@@ -69,6 +69,22 @@ function writeJson(file, value) {
   }
 }
 
+export function updateCacheFile(bridgeHome) {
+  return path.join(bridgeHome, "update-check.json");
+}
+
+export function readCachedUpdate({ cacheFile, currentVersion } = {}) {
+  const cache = cacheFile ? readJson(cacheFile) : null;
+  if (!cache?.latest) {
+    return null;
+  }
+  return {
+    latest: cache.latest,
+    checkedAt: cache.lastCheck || null,
+    updateAvailable: isNewer(cache.latest, currentVersion),
+  };
+}
+
 // Reads only public release metadata; uploads nothing (doc 07 §6b).
 export async function fetchLatestRelease({ repo, fetchImpl = fetch, signal } = {}) {
   const response = await fetchImpl(`https://api.github.com/repos/${repo}/releases/latest`, {
@@ -85,7 +101,7 @@ export async function fetchLatestRelease({ repo, fetchImpl = fetch, signal } = {
   return typeof json?.tag_name === "string" ? normalizeVersion(json.tag_name) : null;
 }
 
-// Rate-limited (24h), failure-silent, off-capable update check. Never auto-installs.
+// Rate-limited (24h), failure-silent, off-capable update check.
 export async function checkForUpdate({
   env = process.env,
   currentVersion,

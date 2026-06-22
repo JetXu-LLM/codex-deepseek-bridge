@@ -23,6 +23,7 @@ import {
   fetchLatestRelease,
   isNewer,
   releaseRepo,
+  updateCacheFile,
   updateAvailableLine,
   updateCheckDisabled,
 } from "../src/update-check.mjs";
@@ -45,7 +46,7 @@ function printHelp() {
   process.stdout.write(`codex-deepseek-bridge — run Codex on DeepSeek.
 
 Usage:
-  codex-deepseek-bridge setup [--from-stdin] [--port 8787] [--no-start] [--desktop-patch] [--no-desktop-patch] [--log-payloads|--no-log-payloads] [--print-prompt]
+  codex-deepseek-bridge setup [--from-stdin] [--port 8787] [--no-start] [--desktop-patch] [--no-desktop-patch] [--log-payloads|--no-log-payloads] [--yes] [--no-upgrade-check] [--print-prompt]
   codex-deepseek-bridge start [--port 8787] [--log-payloads|--no-log-payloads]
   codex-deepseek-bridge report
   codex-deepseek-bridge doctor [--live]
@@ -117,6 +118,21 @@ function confirm(question) {
     rl.question(question, (answer) => {
       rl.close();
       resolve(/^y(es)?$/i.test(String(answer).trim()));
+    });
+  });
+}
+
+function confirmDefaultYes(question) {
+  return new Promise((resolve) => {
+    if (!process.stdin.isTTY) {
+      resolve(false);
+      return;
+    }
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (answer) => {
+      rl.close();
+      const text = String(answer).trim();
+      resolve(text === "" || /^y(es)?$/i.test(text));
     });
   });
 }
@@ -211,7 +227,7 @@ async function appendUpdateLine(currentVersion, env, bridgeHome) {
   if (updateCheckDisabled(env)) {
     return;
   }
-  const cacheFile = path.join(bridgeHome, "update-check.json");
+  const cacheFile = updateCacheFile(bridgeHome);
   const result = await checkForUpdate({ env, currentVersion, cacheFile });
   if (result?.updateAvailable) {
     out(updateAvailableLine(result.latest, currentVersion));
@@ -252,6 +268,106 @@ function modelsStatusLine(result) {
   return catalogIncludesFlash(result)
     ? "deepseek-pro and deepseek-flash published to the picker"
     : "deepseek-pro published (deepseek-flash needs the Desktop patch)";
+}
+
+function setupUpgradeCheckSkipped(args, env) {
+  return (
+    args["no-upgrade-check"] === true ||
+    env.DSCB_SKIP_SETUP_UPGRADE_CHECK === "1" ||
+    updateCheckDisabled(env)
+  );
+}
+
+function setupCommandArgs(rawArgs) {
+  return ["setup", ...rawArgs];
+}
+
+function spawnSetup(command, commandArgs, env, { shell = false } = {}) {
+  const result = spawnSync(command, commandArgs, {
+    stdio: "inherit",
+    shell,
+    env: { ...env, DSCB_SKIP_SETUP_UPGRADE_CHECK: "1" },
+  });
+  if (typeof result.status === "number") {
+    return result.status;
+  }
+  if (result.signal) {
+    err(`Setup stopped by ${result.signal}.`);
+  } else if (result.error) {
+    err(`Could not restart setup: ${result.error.message}`);
+  }
+  return 1;
+}
+
+async function maybeUpgradeBeforeSetup(args, rawArgs, env, bridgeHome) {
+  if (setupUpgradeCheckSkipped(args, env)) {
+    return null;
+  }
+
+  const current = bridgeVersion();
+  const repo = releaseRepo(env);
+  const check = await checkForUpdate({
+    env,
+    currentVersion: current,
+    repo,
+    cacheFile: updateCacheFile(bridgeHome),
+    force: true,
+  });
+  if (!check?.updateAvailable) {
+    return null;
+  }
+
+  const latest = check.latest;
+  const method = detectInstallMethod();
+  let accepted = args.yes === true;
+  if (!accepted && process.stdin.isTTY) {
+    accepted = await confirmDefaultYes(`A newer codex-deepseek-bridge is available (${current} -> ${latest}). Upgrade before setup? [Y/n] `);
+  }
+  if (!accepted) {
+    out(`Update available: ${latest} (you have ${current}). Continuing setup with the current version.`);
+    out("To upgrade first in a non-interactive run, add --yes or run: codex-deepseek-bridge upgrade");
+    return null;
+  }
+
+  if (method === "source") {
+    out("Source install detected. Update with: git pull && npm install");
+    out("Continuing setup with the current source checkout.");
+    return null;
+  }
+
+  if (method === "npm") {
+    const install = spawnSync("npm", ["install", "-g", `github:${repo}`], { stdio: "inherit" });
+    if (install.status !== 0) {
+      err(`npm upgrade failed. Run: npm install -g github:${repo}`);
+      return 1;
+    }
+    out(`Upgraded to ${latest}. Continuing setup with the updated CLI.`);
+    return spawnSetup("codex-deepseek-bridge", setupCommandArgs(rawArgs), env, { shell: process.platform === "win32" });
+  }
+
+  const asset = await downloadVerifiedAsset({ env, version: latest, repo });
+  if (!asset.ok) {
+    if (asset.reason === "checksum-mismatch") {
+      err("Upgrade aborted: the download did not match its checksum. Nothing was changed.");
+    } else {
+      err("Upgrade failed to download a verified binary. Download the latest release manually.");
+    }
+    return 1;
+  }
+
+  const restartArgs = setupCommandArgs(rawArgs);
+  const swap = stageBinarySwap({ currentPath: process.execPath, bytes: asset.bytes, restartArgs });
+  if (!swap.ok) {
+    err("Upgrade failed while swapping the binary. The previous binary is unchanged.");
+    return 1;
+  }
+  if (swap.staged) {
+    out(`Upgraded to ${latest}. A helper will finish the swap and re-run setup.`);
+    return 0;
+  }
+
+  out(`Upgraded to ${latest}. Continuing setup with the updated binary.`);
+  return spawnSetup(process.execPath, restartArgs, env);
 }
 
 // The framed guidance shown when the Desktop patch cannot write to Codex.
@@ -448,13 +564,18 @@ async function maybePatchCodexDesktop(args, env, bridgeHome) {
   }
 }
 
-async function cmdSetup(args, env, config) {
+async function cmdSetup(args, env, config, rawArgs = []) {
   if (args["print-prompt"] === true) {
     process.stdout.write(CODEX_SETUP_PROMPT);
     return 0;
   }
 
   const bridgeHome = defaultBridgeHome(env);
+  const upgradeCode = await maybeUpgradeBeforeSetup(args, rawArgs, env, bridgeHome);
+  if (upgradeCode != null) {
+    return upgradeCode;
+  }
+
   const hasStoredKey = inspectCodexInstall({ env, bridgeHome }).keyStored;
   const explicitKeySource = args["from-stdin"] === true || Boolean(env.DEEPSEEK_API_KEY);
   const key = explicitKeySource || !hasStoredKey ? await resolveKey(args, env) : "";
@@ -934,7 +1055,7 @@ async function cmdServe(config, env) {
 
   // Background update check: once after start, then at most once per 24h.
   if (!updateCheckDisabled(env)) {
-    const cacheFile = path.join(defaultBridgeHome(env), "update-check.json");
+    const cacheFile = updateCacheFile(defaultBridgeHome(env));
     checkForUpdate({ env, currentVersion: bridgeVersion(), cacheFile }).catch(() => {});
   }
 
@@ -979,7 +1100,7 @@ async function main() {
       printHelp();
       return 0;
     case "setup":
-      return cmdSetup(args, env, config);
+      return cmdSetup(args, env, config, argv.slice(1));
     case "start":
       return cmdStart(args, env, config);
     case "report":

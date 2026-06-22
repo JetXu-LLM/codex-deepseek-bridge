@@ -529,7 +529,8 @@ export async function startServer(config) {
         return;
       }
       if (req.method === "GET" && url.pathname === "/report/data") {
-        sendJson(res, 200, { ...reportDataForConfig(config), bridgeVersion: bridgeVersion() });
+        const currentVersion = bridgeVersion();
+        sendJson(res, 200, { ...reportDataForConfig(config, { currentVersion }), bridgeVersion: currentVersion });
         return;
       }
       const rawCallMatch = url.pathname.match(/^\/report\/calls\/([^/]+?)(?:\.json)?$/);

@@ -3,7 +3,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
-import { checkForUpdate, compareSemver, isNewer, updateCheckDisabled } from "../src/update-check.mjs";
+import {
+  checkForUpdate,
+  compareSemver,
+  isNewer,
+  readCachedUpdate,
+  updateCacheFile,
+  updateCheckDisabled,
+} from "../src/update-check.mjs";
 
 test("compareSemver orders versions and pre-releases", () => {
   assert.equal(compareSemver("1.2.3", "1.2.3"), 0);
@@ -58,4 +65,16 @@ test("checkForUpdate detects a newer release and caches it", async () => {
   const second = await checkForUpdate({ env: {}, currentVersion: "1.0.0", cacheFile, fetchImpl, now: Date.now() });
   assert.equal(second.updateAvailable, true);
   assert.equal(calls, 1, "second call within 24h should use the cache");
+});
+
+test("readCachedUpdate reports cached release state without network", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "dscb-update-cache-test-"));
+  const cacheFile = updateCacheFile(root);
+  fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+  fs.writeFileSync(cacheFile, `${JSON.stringify({ lastCheck: "2026-06-22T00:00:00.000Z", latest: "2.0.0" })}\n`);
+
+  const result = readCachedUpdate({ cacheFile, currentVersion: "1.0.0" });
+  assert.equal(result.latest, "2.0.0");
+  assert.equal(result.checkedAt, "2026-06-22T00:00:00.000Z");
+  assert.equal(result.updateAvailable, true);
 });
