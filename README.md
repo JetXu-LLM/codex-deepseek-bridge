@@ -66,8 +66,14 @@ chmod +x ./codex-deepseek-bridge-macos-x64
 ### Windows PowerShell
 
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/JetXu-LLM/codex-deepseek-bridge/releases/latest/download/codex-deepseek-bridge-win-x64.exe" -OutFile ".\codex-deepseek-bridge-win-x64.exe"
-.\codex-deepseek-bridge-win-x64.exe setup
+$ErrorActionPreference = "Stop"
+$url = "https://github.com/JetXu-LLM/codex-deepseek-bridge/releases/latest/download/codex-deepseek-bridge-win-x64.exe"
+$out = ".\codex-deepseek-bridge-win-x64.exe"
+Remove-Item $out -ErrorAction SilentlyContinue
+curl.exe -L --fail --progress-bar -o $out $url
+if ($LASTEXITCODE -ne 0) { throw "Download failed." }
+if ((Get-Item $out).Length -lt 10MB) { throw "Download looks incomplete. Run the commands again." }
+& $out setup
 ```
 
 `setup` asks for your DeepSeek API key in the terminal. It is not echoed, printed, logged, or taken

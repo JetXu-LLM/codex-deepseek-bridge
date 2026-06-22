@@ -268,6 +268,7 @@ test("restoreCodexDesktopPatch restores the official signature without re-signin
   assert.equal(fs.readFileSync(bundle.rootExecutable, "utf8"), "executable-original");
   assert.equal(state.active, false);
   assert.equal(state.restoreCodesignVerified, true);
+  assert.equal(state.restoreLaunchAssessmentAccepted, true);
 });
 
 test("restoreCodexDesktopPatch waits and verifies again after restoring a macOS signature", () => {
@@ -308,9 +309,96 @@ test("restoreCodexDesktopPatch waits and verifies again after restoring a macOS 
   assert.equal(restore.status, "restored");
   assert.equal(restore.restoreCodesignStabilized, true);
   assert.equal(restore.restoreCodesignStabilizationMs, 1);
+  assert.equal(restore.restoreLaunchAssessmentAccepted, true);
   assert.equal(state.restoreCodesignStabilized, true);
+  assert.equal(state.restoreLaunchAssessmentAccepted, true);
   assert.equal(commands.some(([command]) => command === "/bin/sync"), true);
+  assert.equal(commands.some(([command]) => command.endsWith("/lsregister")), true);
+  assert.equal(commands.some(([command]) => command === "spctl"), true);
   assert.equal(verifyCalls, 3);
+});
+
+test("restoreCodexDesktopPatch retries until macOS accepts the restored app for launch", () => {
+  const root = tempRoot();
+  const bridgeHome = path.join(root, "bridge");
+  const bundle = writeFakeBundle(
+    root,
+    "function e({authMethod:e,availableModels:t,defaultModel:n,models:r,useHiddenModels:i}){let a=[],o=null,s=i&&e!==`amazonBedrock`;return r.forEach(n=>{if(s?t.has(n.model):!n.hidden){a.push(n)}})}",
+  );
+  let assessmentCalls = 0;
+  const runCommand = (command, args) => {
+    if (command === "spctl" && args.includes("--assess")) {
+      assessmentCalls += 1;
+      if (assessmentCalls === 1) {
+        throw new Error("assessment still pending");
+      }
+    }
+  };
+
+  const patch = patchCodexDesktop({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    platform: "darwin",
+  });
+  assert.equal(patch.status, "patched");
+
+  const restore = restoreCodexDesktopPatch({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    stabilizationMs: 1,
+    platform: "darwin",
+  });
+  const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
+
+  assert.equal(restore.status, "restored");
+  assert.equal(assessmentCalls, 2);
+  assert.equal(restore.restoreLaunchAssessmentInitiallyAccepted, false);
+  assert.equal(restore.restoreLaunchAssessmentAccepted, true);
+  assert.equal(state.restoreLaunchAssessmentAccepted, true);
+});
+
+test("restoreCodexDesktopPatch fails when macOS launch assessment never accepts the restored app", () => {
+  const root = tempRoot();
+  const bridgeHome = path.join(root, "bridge");
+  const bundle = writeFakeBundle(
+    root,
+    "function e({authMethod:e,availableModels:t,defaultModel:n,models:r,useHiddenModels:i}){let a=[],o=null,s=i&&e!==`amazonBedrock`;return r.forEach(n=>{if(s?t.has(n.model):!n.hidden){a.push(n)}})}",
+  );
+  const runCommand = (command, args) => {
+    if (command === "spctl" && args.includes("--assess")) {
+      throw new Error("assessment failed");
+    }
+  };
+
+  const patch = patchCodexDesktop({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    platform: "darwin",
+  });
+  assert.equal(patch.status, "patched");
+
+  const restore = restoreCodexDesktopPatch({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    stabilizationMs: 1,
+    platform: "darwin",
+  });
+  const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
+
+  assert.equal(restore.status, "signature-restore-failed");
+  assert.equal(restore.restoreCodesignVerified, true);
+  assert.equal(restore.restoreLaunchAssessmentAccepted, false);
+  assert.equal(state.active, false);
+  assert.equal(state.restoreCodesignVerified, true);
+  assert.equal(state.restoreLaunchAssessmentAccepted, false);
 });
 
 test("restoreCodexDesktopPatch refuses to restore a macOS bundle while Codex is running", () => {
@@ -396,6 +484,7 @@ test("restoreCodexDesktopPatch does not ad-hoc sign when official restore verifi
   assert.equal(fs.readFileSync(bundle.rootExecutable, "utf8"), "executable-original");
   assert.equal(state.active, false);
   assert.equal(state.restoreCodesignVerified, false);
+  assert.equal(state.restoreLaunchAssessmentAccepted, false);
 });
 
 test("restoreCodexDesktopPatch reports stale inactive signature failure without re-signing", () => {
@@ -447,6 +536,53 @@ test("restoreCodexDesktopPatch reports stale inactive signature failure without 
   assert.equal(restore.changed, false);
   assert.equal(signCommands.length, 0);
   assert.equal(state.restoreCodesignVerified, false);
+  assert.equal(state.restoreLaunchAssessmentAccepted, false);
+});
+
+test("restoreCodexDesktopPatch reassesses older inactive macOS restore state", () => {
+  const root = tempRoot();
+  const bridgeHome = path.join(root, "bridge");
+  const bundle = writeFakeBundle(
+    root,
+    "function e({authMethod:e,availableModels:t,defaultModel:n,models:r,useHiddenModels:i}){let a=[],o=null,s=i&&e!==`amazonBedrock`;return r.forEach(n=>{if(s?t.has(n.model):!n.hidden){a.push(n)}})}",
+  );
+  fs.mkdirSync(bridgeHome, { recursive: true });
+  fs.writeFileSync(
+    path.join(bridgeHome, "desktop-patch-state.json"),
+    `${JSON.stringify(
+      {
+        active: false,
+        appAsarPath: bundle.appAsar,
+        appBundlePath: bundle.app,
+        restoreCodesignVerified: true,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  let assessmentCalls = 0;
+  const runCommand = (command, args) => {
+    if (command === "spctl" && args.includes("--assess")) {
+      assessmentCalls += 1;
+    }
+  };
+
+  const restore = restoreCodexDesktopPatch({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    stabilizationMs: 0,
+    platform: "darwin",
+  });
+  const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
+
+  assert.equal(restore.status, "not-managed");
+  assert.equal(restore.changed, false);
+  assert.equal(assessmentCalls, 1);
+  assert.equal(state.restoreCodesignVerified, true);
+  assert.equal(state.restoreLaunchAssessmentAccepted, true);
 });
 
 test("patchCodexDesktop patches and restores a writable Windows Electron bundle", () => {

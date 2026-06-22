@@ -15,7 +15,10 @@ const INFO_PLIST_RELATIVE_PATH = path.join("Contents", "Info.plist");
 const CODE_SIGNATURE_RELATIVE_PATH = path.join("Contents", "_CodeSignature");
 const ROOT_EXECUTABLE_RELATIVE_PATH = path.join("Contents", "MacOS", "Codex");
 const WINDOWS_LAUNCHER_NAME = "Codex-DeepSeek.cmd";
-const DEFAULT_RESTORE_STABILIZATION_MS = 3000;
+const DEFAULT_RESTORE_STABILIZATION_MS = 15000;
+const RESTORE_STABILIZATION_POLL_MS = 1000;
+const LSREGISTER_PATH =
+  "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 
 const EXACT_PATCHES = [
   {
@@ -617,20 +620,77 @@ function verifyCodexApp({ appBundlePath, runCommand = defaultRunCommand }) {
   }
 }
 
-function stabilizeRestoredMacSignature({ appBundlePath, runCommand = defaultRunCommand, stabilizationMs = 0 }) {
-  const initiallyVerified = verifyCodexApp({ appBundlePath, runCommand });
+function assessMacLaunch({ appBundlePath, runCommand = defaultRunCommand, platform = process.platform }) {
+  if (platform !== "darwin") {
+    return true;
+  }
+  try {
+    runCommand("spctl", ["--assess", "--type", "execute", "--verbose=4", appBundlePath]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function refreshMacLaunchServices({ appBundlePath, runCommand = defaultRunCommand, platform = process.platform }) {
+  if (platform !== "darwin") {
+    return;
+  }
+  try {
+    runCommand(LSREGISTER_PATH, ["-f", appBundlePath]);
+  } catch {
+    // Best effort only. The launch assessment below is the real gate.
+  }
+}
+
+function restoredMacSignatureStatus({ appBundlePath, runCommand = defaultRunCommand, platform = process.platform }) {
+  const codesignVerified = verifyCodexApp({ appBundlePath, runCommand });
+  return {
+    codesignVerified,
+    launchAssessmentAccepted: codesignVerified ? assessMacLaunch({ appBundlePath, runCommand, platform }) : false,
+  };
+}
+
+function stabilizeRestoredMacSignature({
+  appBundlePath,
+  runCommand = defaultRunCommand,
+  stabilizationMs = 0,
+  platform = process.platform,
+}) {
+  const initial = restoredMacSignatureStatus({ appBundlePath, runCommand, platform });
   if (!Number.isFinite(stabilizationMs) || stabilizationMs <= 0) {
-    return { verified: initiallyVerified, initiallyVerified, stabilized: false, stabilizationMs: 0 };
+    return {
+      verified: initial.codesignVerified && initial.launchAssessmentAccepted,
+      codesignVerified: initial.codesignVerified,
+      initiallyVerified: initial.codesignVerified,
+      launchAssessmentAccepted: initial.launchAssessmentAccepted,
+      initiallyLaunchAssessmentAccepted: initial.launchAssessmentAccepted,
+      stabilized: false,
+      stabilizationMs: 0,
+    };
   }
   try {
     runCommand("/bin/sync", []);
   } catch {
-    // Best effort only; the second codesign verification is the real gate.
+    // Best effort only. The repeated checks below are the real gate.
   }
-  sleepSync(stabilizationMs);
+  refreshMacLaunchServices({ appBundlePath, runCommand, platform });
+  const deadline = Date.now() + stabilizationMs;
+  let final = initial;
+  do {
+    sleepSync(Math.min(RESTORE_STABILIZATION_POLL_MS, Math.max(0, deadline - Date.now())));
+    final = restoredMacSignatureStatus({ appBundlePath, runCommand, platform });
+    if (final.codesignVerified && final.launchAssessmentAccepted) {
+      break;
+    }
+  } while (Date.now() < deadline);
+
   return {
-    verified: verifyCodexApp({ appBundlePath, runCommand }),
-    initiallyVerified,
+    verified: final.codesignVerified && final.launchAssessmentAccepted,
+    codesignVerified: final.codesignVerified,
+    initiallyVerified: initial.codesignVerified,
+    launchAssessmentAccepted: final.launchAssessmentAccepted,
+    initiallyLaunchAssessmentAccepted: initial.launchAssessmentAccepted,
     stabilized: true,
     stabilizationMs,
   };
@@ -1183,20 +1243,27 @@ export function restoreCodexDesktopPatch({
   }
 
   if (!state.active) {
-    if (state.restoreCodesignVerified !== false) {
+    const launchAssessmentKnownAccepted = statePlatform !== "darwin" || state.restoreLaunchAssessmentAccepted === true;
+    if (state.restoreCodesignVerified !== false && launchAssessmentKnownAccepted) {
       return { changed: false, status: "not-managed" };
     }
     try {
-      const restoreCodesignVerified = verifyCodexApp({ appBundlePath: resolvedBundle, runCommand });
+      const signature = stabilizeRestoredMacSignature({ appBundlePath: resolvedBundle, runCommand, stabilizationMs, platform: statePlatform });
       writeJson(statePath, {
         ...state,
-        restoreCodesignVerified,
+        restoreCodesignVerified: signature.codesignVerified,
+        restoreLaunchAssessmentAccepted: signature.launchAssessmentAccepted,
+        restoreLaunchAssessmentInitiallyAccepted: signature.initiallyLaunchAssessmentAccepted,
+        restoreCodesignStabilized: signature.stabilized,
+        restoreCodesignStabilizationMs: signature.stabilizationMs,
       });
       return {
         changed: false,
-        status: restoreCodesignVerified ? "not-managed" : "signature-restore-failed",
+        status: signature.verified ? "not-managed" : "signature-restore-failed",
         appAsarPath: resolvedAsar,
         appBundlePath: resolvedBundle,
+        restoreCodesignVerified: signature.codesignVerified,
+        restoreLaunchAssessmentAccepted: signature.launchAssessmentAccepted,
       };
     } catch (error) {
       return {
@@ -1251,15 +1318,22 @@ export function restoreCodexDesktopPatch({
   fs.rmSync(codeSignaturePath, { recursive: true, force: true });
   fs.cpSync(state.codeSignatureBackupPath, codeSignaturePath, { recursive: true });
 
-  const signature = stabilizeRestoredMacSignature({ appBundlePath: resolvedBundle, runCommand, stabilizationMs });
+  const signature = stabilizeRestoredMacSignature({
+    appBundlePath: resolvedBundle,
+    runCommand,
+    stabilizationMs,
+    platform: statePlatform,
+  });
 
   const restoredState = {
     ...state,
     active: false,
     restoredAt: new Date().toISOString(),
     preRestoreBackupPath,
-    restoreCodesignVerified: signature.verified,
+    restoreCodesignVerified: signature.codesignVerified,
     restoreCodesignInitiallyVerified: signature.initiallyVerified,
+    restoreLaunchAssessmentAccepted: signature.launchAssessmentAccepted,
+    restoreLaunchAssessmentInitiallyAccepted: signature.initiallyLaunchAssessmentAccepted,
     restoreCodesignStabilized: signature.stabilized,
     restoreCodesignStabilizationMs: signature.stabilizationMs,
   };
@@ -1270,8 +1344,10 @@ export function restoreCodexDesktopPatch({
     appAsarPath: resolvedAsar,
     appBundlePath: resolvedBundle,
     preRestoreBackupPath,
-    restoreCodesignVerified: signature.verified,
+    restoreCodesignVerified: signature.codesignVerified,
     restoreCodesignInitiallyVerified: signature.initiallyVerified,
+    restoreLaunchAssessmentAccepted: signature.launchAssessmentAccepted,
+    restoreLaunchAssessmentInitiallyAccepted: signature.initiallyLaunchAssessmentAccepted,
     restoreCodesignStabilized: signature.stabilized,
     restoreCodesignStabilizationMs: signature.stabilizationMs,
   };

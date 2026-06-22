@@ -887,7 +887,7 @@ function restoreAttentionLine(desktopRestore, purgeResult) {
   const prefix = purgeResult?.skipped ? "Note: kept bridge backups because restore needs them. " : "Note: ";
   switch (desktopRestore?.status) {
     case "signature-restore-failed":
-      return `${prefix}Codex Desktop's original signature could not be verified, and the bridge did not locally re-sign it. Reinstall or update Codex from the official source to stop Keychain prompts.`;
+      return `${prefix}Codex Desktop's original signature could not be fully accepted by macOS, and the bridge did not locally re-sign it. Reinstall or update Codex from the official source to stop Keychain prompts.`;
     case "missing-signature-backup":
       return `${prefix}Codex Desktop signature backups are missing. Reinstall or update Codex from the official source to stop Keychain prompts.`;
     case "missing-backup":
@@ -916,7 +916,7 @@ function printRestoreMessage(message, stopped, purgeResult, desktopRestore) {
 function desktopRestoreLine(desktopRestore, fmt) {
   switch (desktopRestore?.status) {
     case "restored":
-      return fmt.label.ok(desktopRestore.restoreCodesignStabilized ? "restored; signature settled" : "restored");
+      return fmt.label.ok(desktopRestore.restoreCodesignStabilized ? "restored; macOS accepted" : "restored");
     case "signature-repaired":
       return fmt.label.ok("official signature repaired");
     case "not-managed":
