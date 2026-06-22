@@ -8,8 +8,8 @@
   <br>
 
   <p>
-    <a href="https://github.com/JetXu-LLM/codex-deepseek-bridge/releases/latest">
-      <img alt="Download the binary" src="https://img.shields.io/badge/⬇️_Download_the_binary-0DAFC6?style=for-the-badge">
+    <a href="#quick-start">
+      <img alt="Quick Start" src="https://img.shields.io/badge/🚀_Quick_Start-0DAFC6?style=for-the-badge">
     </a>
   </p>
 
@@ -21,7 +21,7 @@
   </p>
 
   <p><sub>
-    Keep the Codex app you already use — approvals, MCP servers, your whole workflow stay put — but send every model call to DeepSeek.<br>
+    Keep the Codex app you already use — approvals, plugins, MCP servers, your whole workflow stay put — but send every model call to DeepSeek.<br>
     No fork, no proxy account, no telemetry. When you want out, a single <code>restore</code> puts everything back.
   </sub></p>
 
@@ -31,28 +31,17 @@
 
 ![Codex composer running deepseek-pro with max thinking enabled](docs/assets/codex-composer-deepseek-pro.png)
 
-Codex is a capable agent. DeepSeek is a strong model that costs little. This joins the two without
-asking you to give up either. `setup` writes one reversible block into Codex's own `config.toml`,
-points it at a bridge on `127.0.0.1`, and the bridge talks to DeepSeek on the other side. No account
-juggling, no forked app.
+`setup` writes one reversible block into Codex's own `config.toml`, points it at a bridge on
+`127.0.0.1`, and the bridge talks to DeepSeek on the other side. No forked app, no account juggling.
 
 ## Requirements
 
 - A DeepSeek API key from [platform.deepseek.com](https://platform.deepseek.com).
 - The Codex app on macOS or Windows.
 
-## Why this exists
-
-- **Keep your real Codex.** It configures the app you already installed instead of shipping a fork, so approvals, MCP servers, and the rest of your setup keep working.
-- **One key, kept local.** Your DeepSeek key is read from stdin, stored with owner-only permissions, and never printed, logged, or passed as a command-line argument.
-- **See what every call costs.** A local, read-only report shows tokens, latency, and DeepSeek cache hits per call — with no prompt text stored.
-- **Cache visibility, not silent edits.** It watches how well Codex's prompts reuse DeepSeek's context cache and flags prefix drift. It reports the problem; it does not rewrite your prompts behind your back.
-- **Ready for multimodal.** A vision seam is wired through the bridge; when DeepSeek ships image input, turning it on is a config flag, not a rewrite.
-- **Reversible by design.** `restore` removes the managed block and stops the bridge. `restore --purge` clears everything, key included.
-
 ## Quick Start
 
-> **Download one binary, run `setup`, restart Codex.** No build step, and Node is not required.
+> **Copy the commands below, run them, then restart Codex.** That is the whole install — no build step, and Node is not required.
 
 ### macOS Apple Silicon
 
@@ -88,8 +77,20 @@ effort (the screenshot up top is `deepseek-pro` running at max thinking) because
 builds do not render custom model names yet. Want both models with their real labels? See
 [Show both models in the picker](#show-both-models-in-the-picker-opt-in) below.
 
+Reasoning effort maps straight through to DeepSeek: **Extra High** (and `max`) run `deepseek-pro` at
+maximum thinking, **High** is the middle setting, and **None** turns thinking off.
+
 Setup is safe to run again. If you start with `setup` and later want the full picker, run
 `setup --desktop-patch`; the bridge rewrites the same managed block instead of duplicating config.
+
+## Why this exists
+
+- 🧩 **Your Codex stays your Codex.** It configures the app you already use, so approvals, plugins, skills, and MCP servers keep working — nothing is forked or replaced.
+- 🔒 **Your key stays local.** Read from stdin, stored with owner-only permissions, never printed, logged, or passed as an argument. No telemetry.
+- 📊 **You see every call.** A local, read-only [report](#the-local-report) shows tokens, latency, and DeepSeek cache hits — with no prompt text stored.
+- 🎯 **Cache visibility, not silent edits.** It flags when your prompt prefix drifts and stops hitting DeepSeek's cache. It reports the problem; it never rewrites your prompts.
+- 🖼️ **Ready for multimodal.** A vision seam is already wired in; when DeepSeek ships image input it is a config flag, not a rewrite.
+- ↩️ **One command out.** `restore` removes the managed block and stops the bridge; `restore --purge` clears everything, key included.
 
 ## Show both models in the picker (opt-in)
 
