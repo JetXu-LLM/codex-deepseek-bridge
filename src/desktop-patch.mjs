@@ -708,6 +708,7 @@ function patchFailure(error, restoreReason = "") {
   return {
     status: "error",
     reason: error instanceof Error ? error.message : String(error),
+    errorCode: error?.code || "",
     restoreReason,
   };
 }
@@ -858,8 +859,13 @@ export function patchCodexDesktop({
   if (platform === "win32") {
     try {
       fs.accessSync(resolvedAsar, fs.constants.W_OK);
-    } catch {
-      return { status: "not-writable", appAsarPath: resolvedAsar, appBundlePath: resolvedBundle };
+    } catch (error) {
+      return {
+        status: "not-writable",
+        appAsarPath: resolvedAsar,
+        appBundlePath: resolvedBundle,
+        accessErrorCode: error?.code || "",
+      };
     }
 
     const beforeHeaderHash = sha256(asar.headerBytes);
@@ -926,8 +932,13 @@ export function patchCodexDesktop({
     fs.accessSync(resolvedAsar, fs.constants.W_OK);
     fs.accessSync(infoPlistPath, fs.constants.W_OK);
     fs.accessSync(rootExecutablePath, fs.constants.W_OK);
-  } catch {
-    return { status: "not-writable", appAsarPath: resolvedAsar, appBundlePath: resolvedBundle };
+  } catch (error) {
+    return {
+      status: "not-writable",
+      appAsarPath: resolvedAsar,
+      appBundlePath: resolvedBundle,
+      accessErrorCode: error?.code || "",
+    };
   }
 
   const beforeHeaderHash = sha256(asar.headerBytes);

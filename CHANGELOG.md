@@ -5,6 +5,27 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.16
+
+Clearer setup output and honest macOS Desktop-patch guidance, plus a refreshed README.
+
+### Added
+
+- `setup` now prints a structured summary with labeled sections and, when the Desktop patch needs
+  attention, a highlighted callout instead of a wall of text. Output is color-formatted on a TTY and
+  stays plain ASCII when piped or redirected (`NO_COLOR` and `DSCB_NO_COLOR` are honored).
+
+### Changed
+
+- When `--desktop-patch` cannot modify Codex on macOS, the message now explains it is almost always
+  macOS App Management (System Settings &rarr; Privacy & Security &rarr; App Management), notes that
+  `sudo` does not help, and points to config-only `deepseek-pro` as the no-patch path.
+- `doctor` surfaces the ad-hoc signature and Keychain-prompt situation whenever Codex is locally
+  signed, with the fix (reinstall or update Codex), not only when the patch is unmanaged.
+- Rebuilt the README with a clearer hero, value highlights, an embedded report screenshot, and an
+  honest, prominent write-up of the opt-in Desktop patch and its macOS trade-offs. Expanded
+  troubleshooting for the "not writable" and double Keychain-prompt cases.
+
 ## 0.1.15
 
 Redesigns the local report and hardens Desktop patch error handling.

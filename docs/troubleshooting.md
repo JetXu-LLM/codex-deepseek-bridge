@@ -52,6 +52,20 @@ On macOS, maintainers can verify the exact desktop app-server response with:
 npm run verify:codex-app
 ```
 
+## `setup --desktop-patch` says "not writable" (macOS)
+
+This is almost always macOS **App Management**, not file permissions. macOS protects apps in
+`/Applications` from being modified by other programs, even when the files are owned by you. The fix
+is a one-time permission, not `sudo`:
+
+1. Open System Settings &rarr; Privacy & Security &rarr; **App Management**.
+2. Turn it on for the terminal you run the bridge from (Terminal, iTerm, or your editor).
+3. Re-run `./codex-deepseek-bridge-macos setup --desktop-patch`.
+
+`sudo` does not help here — App Management is enforced per app and the root user is not exempt. If you
+would rather not grant it, config-only `setup` already gives you `deepseek-pro`; the patch only adds
+`deepseek-flash` and the full picker labels.
+
 ## DeepSeek calls fail
 
 Run the live check to tell the three causes apart:
@@ -119,13 +133,16 @@ Upgrade to `0.1.14` or newer. Older bridge builds flattened namespace tools with
 Codex expects, so calls such as `mcp__node_repl__js` could be returned as `mcp__node_repljs`. The
 tools were present and sent to DeepSeek, but Codex rejected the malformed returned tool name.
 
-## macOS asks for the `Codex Storage Key` password
+## macOS asks for the `Codex Storage Key` password (sometimes twice)
 
-Run `codex-deepseek-bridge doctor`. If it says the Codex signature is `local/ad-hoc` and not managed
-by this bridge state, Codex.app has already lost its original official signing identity. A normal
-bridge restore can only restore backups that still exist and still contain the original signature.
-If the app keeps asking for Keychain access after restore, reinstall or update Codex from the
-official source to restore the official signature.
+This is a side effect of the Desktop patch. Editing `app.asar` invalidates Codex's original Apple
+signature, so the bridge re-signs the bundle locally (ad-hoc). macOS ties Keychain access to the
+signature, so a locally signed Codex looks like a different app and re-prompts — sometimes once per
+Keychain item, which is why you can see two prompts. Click **Always Allow** on each.
+
+Run `codex-deepseek-bridge doctor`; it reports when the Codex signature is `local/ad-hoc`. To remove
+the prompts for good, reinstall or update Codex from the official source to restore Apple's
+signature. Re-running `--desktop-patch` re-signs it again, so the prompts return if you re-patch.
 
 ## The bridge stopped after a reboot (Windows)
 

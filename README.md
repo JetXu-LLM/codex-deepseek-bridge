@@ -1,17 +1,58 @@
-# Codex DeepSeek Bridge
+<div align="center">
 
-Use DeepSeek inside the OpenAI Codex app through a tiny local Responses-compatible bridge.
+  <h1>Codex DeepSeek Bridge</h1>
 
-By default, setup uses Codex's official config path and publishes `deepseek-pro`. If you explicitly
-opt in to the Desktop compatibility patch, Codex also shows `deepseek-flash` in the model picker and
-keeps provider-scoped local history visible in more Desktop builds.
+  <p><strong>Run the OpenAI Codex app on DeepSeek.</strong></p>
+  <p>One command sets it up. A tiny local bridge does the rest.<br>Your Codex, your DeepSeek key, your machine.</p>
+
+  <br>
+
+  <p>
+    <a href="https://github.com/JetXu-LLM/codex-deepseek-bridge/releases/latest">
+      <img alt="Download the binary" src="https://img.shields.io/badge/⬇️_Download_the_binary-0DAFC6?style=for-the-badge">
+    </a>
+  </p>
+
+  <p>
+    <img alt="Platform: macOS and Windows" src="https://img.shields.io/badge/platform-macOS_%7C_Windows-7959A2?style=flat-square&logo=apple&logoColor=white">
+    <img alt="Runtime dependencies: zero" src="https://img.shields.io/badge/runtime_deps-0-0A8447?style=flat-square">
+    <img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache_2.0-0F64B5?style=flat-square">
+    <img alt="Uninstall: one command" src="https://img.shields.io/badge/uninstall-one_command-3a3f47?style=flat-square">
+  </p>
+
+  <p><sub>
+    Keep the Codex app you already use — approvals, MCP servers, your whole workflow stay put — but send every model call to DeepSeek.<br>
+    No fork, no proxy account, no telemetry. When you want out, a single <code>restore</code> puts everything back.
+  </sub></p>
+
+</div>
+
+<br>
+
+![Codex composer running deepseek-pro with max thinking enabled](docs/assets/codex-composer-deepseek-pro.png)
+
+Codex is a capable agent. DeepSeek is a strong model that costs little. This joins the two without
+asking you to give up either. `setup` writes one reversible block into Codex's own `config.toml`,
+points it at a bridge on `127.0.0.1`, and the bridge talks to DeepSeek on the other side. No account
+juggling, no forked app.
 
 ## Requirements
 
-- A DeepSeek API key (`https://platform.deepseek.com`).
-- The Codex app, on macOS or Windows.
+- A DeepSeek API key from [platform.deepseek.com](https://platform.deepseek.com).
+- The Codex app on macOS or Windows.
+
+## Why this exists
+
+- **Keep your real Codex.** It configures the app you already installed instead of shipping a fork, so approvals, MCP servers, and the rest of your setup keep working.
+- **One key, kept local.** Your DeepSeek key is read from stdin, stored with owner-only permissions, and never printed, logged, or passed as a command-line argument.
+- **See what every call costs.** A local, read-only report shows tokens, latency, and DeepSeek cache hits per call — with no prompt text stored.
+- **Cache visibility, not silent edits.** It watches how well Codex's prompts reuse DeepSeek's context cache and flags prefix drift. It reports the problem; it does not rewrite your prompts behind your back.
+- **Ready for multimodal.** A vision seam is wired through the bridge; when DeepSeek ships image input, turning it on is a config flag, not a rewrite.
+- **Reversible by design.** `restore` removes the managed block and stops the bridge. `restore --purge` clears everything, key included.
 
 ## Quick Start
+
+> **Download one binary, run `setup`, restart Codex.** No build step, and Node is not required.
 
 ### macOS Apple Silicon
 
@@ -38,59 +79,72 @@ Invoke-WebRequest -Uri "https://github.com/JetXu-LLM/codex-deepseek-bridge/relea
 .\codex-deepseek-bridge-win-x64.exe setup
 ```
 
-`setup` asks for your DeepSeek API key in the terminal. The key is not echoed, printed, logged, or
-accepted as a command-line argument. After setup finishes, restart Codex.
+`setup` asks for your DeepSeek API key in the terminal. It is not echoed, printed, logged, or taken
+as a command-line argument. When setup finishes it prints a short summary — what was configured,
+which models are published, and any action you still need to take — then you restart Codex.
 
-Config-only setup keeps Codex on `deepseek-pro`; the picker may show `Custom` until Codex Desktop
-fixes custom catalog rendering.
+By default this keeps Codex on `deepseek-pro`. The composer shows `Custom` next to your reasoning
+effort (the screenshot up top is `deepseek-pro` running at max thinking) because current Codex Desktop
+builds do not render custom model names yet. Want both models with their real labels? See
+[Show both models in the picker](#show-both-models-in-the-picker-opt-in) below.
 
-You can safely run setup again. For example, if you first ran `setup` and later decide you want the
-Desktop picker, run `setup --desktop-patch`; the bridge rewrites the same managed block and updates
-the catalog instead of duplicating config.
+Setup is safe to run again. If you start with `setup` and later want the full picker, run
+`setup --desktop-patch`; the bridge rewrites the same managed block instead of duplicating config.
 
-## Desktop Compatibility Patch
+## Show both models in the picker (opt-in)
 
-Current Codex Desktop builds can load `model_catalog_json` on the app-server side while the Desktop
-renderer still filters custom models out of the visible picker. This is tracked in
-[openai/codex#19694](https://github.com/openai/codex/issues/19694). A related open issue for custom
-providers, existing chats, and the Desktop picker is
-[openai/codex#29156](https://github.com/openai/codex/issues/29156).
-
-The Desktop compatibility patch is an explicit local workaround. It modifies your local Codex
-Desktop app files so the picker honors the local catalog and the recent-thread list is not narrowed
-to the previous provider. It does not distribute a modified Codex app.
-
-![Codex Desktop picker showing DeepSeek Pro and DeepSeek Flash after the Desktop compatibility patch](docs/assets/codex-desktop-deepseek-picker-patched.jpg)
-
-The screenshot above requires:
+Config-only setup publishes `deepseek-pro`. To get **both** `deepseek-pro` and `deepseek-flash` with
+their real labels in the picker, opt in to the Desktop patch:
 
 ```bash
 ./codex-deepseek-bridge-macos setup --desktop-patch
 ```
 
-- macOS: patches `Codex.app/Contents/Resources/app.asar`, updates Electron ASAR integrity, and
-  re-signs the local app bundle.
-- Windows writable installs: patches `resources/app.asar` after backing it up.
-- Windows Store installs: creates a writable managed Codex copy under the bridge state directory and
-  prints a launcher path. Use that launcher to open the patched copy.
+![Codex Desktop picker showing DeepSeek Pro and DeepSeek Flash with reasoning efforts](docs/assets/codex-desktop-deepseek-picker-patched.jpg)
 
-Restore your previous Codex setup and stop the bridge with:
+**Why it is needed.** Current Codex Desktop builds load `model_catalog_json` on the app-server side,
+but the renderer filters custom models out of the visible picker
+([openai/codex#19694](https://github.com/openai/codex/issues/19694),
+[openai/codex#29156](https://github.com/openai/codex/issues/29156)). The patch edits your local Codex
+app files so the picker honors the local catalog. It does not download or distribute a modified Codex.
+
+- **macOS:** patches `Codex.app/Contents/Resources/app.asar`, updates ASAR integrity, and re-signs the local bundle.
+- **Windows (writable install):** patches `resources/app.asar` after backing it up.
+- **Windows (Store install):** builds a writable managed copy under the bridge state directory and prints a launcher to open it. *(Treat Windows `--desktop-patch` as experimental.)*
+
+**What is worth knowing up front:**
+
+- **macOS App Management.** macOS guards changes to apps in `/Applications`. The first run may need
+  System Settings &rarr; Privacy &amp; Security &rarr; **App Management** turned on for your terminal.
+  `sudo` does not satisfy this — if the patch reports "not writable," that is usually what it means.
+- **Keychain prompts.** Re-signing the bundle locally changes its signature, so macOS may ask to
+  allow Keychain access when Codex launches. Click **Always Allow**. Reinstalling or updating Codex
+  restores Apple's original signature.
+- **Reversible.** `restore` undoes the patch and stops the bridge.
 
 ```bash
 codex-deepseek-bridge restore
 ```
 
-If you used a downloaded binary and did not install it on your PATH, run the same binary with
-`restore`, for example `./codex-deepseek-bridge-macos restore`.
+If you ran a downloaded binary that is not on your `PATH`, call it the same way, for example
+`./codex-deepseek-bridge-macos restore`. Normal `restore` keeps your key, logs, and backups so you can
+re-run setup without pasting the key again. For a full local cleanup, use `restore --purge`.
 
-Normal `restore` keeps the stored DeepSeek key, logs, and backups so setup can be re-run without
-pasting the key again. For a full local cleanup, use:
+## The local report
 
-```bash
-codex-deepseek-bridge restore --purge
-```
+Every call runs through the bridge, so you can see exactly what Codex is doing on DeepSeek without
+storing a single prompt.
 
-## What Happens
+![The local DeepSeek report dashboard: totals, cache hit rate, prefix risk, latency, and recent calls](docs/assets/report.png)
+
+Run `codex-deepseek-bridge report` to open it at `http://localhost:8787/report`. It is read-only,
+offline, and bound to `127.0.0.1`:
+
+- Tokens, latency, and per-model totals for every call.
+- DeepSeek **cache hit rate** plus a **prefix-risk** read on how stable your cached prompt prefix is.
+- A per-call detail view with metadata only — no prompt text is ever recorded.
+
+## How it works
 
 Codex officially supports user-level provider configuration, `model_provider`, `model_providers`,
 `openai_base_url`, and `model_catalog_json` in `~/.codex/config.toml`. See the OpenAI Codex docs:
@@ -120,7 +174,7 @@ sequenceDiagram
 `setup --desktop-patch` changes only local Desktop renderer files. Model calls still go through the
 local bridge and then to DeepSeek.
 
-## Login And History
+## Login and history
 
 `setup` does not replace your Codex login.
 
@@ -133,26 +187,19 @@ local bridge and then to DeepSeek.
 ChatGPT cloud history still requires a ChatGPT sign-in. Local history can be scoped by Codex
 provider id, so `restore` is the reliable way to return to the exact previous setup.
 
-## Daily Use
+## Daily use
 
 ```bash
-codex-deepseek-bridge doctor
-codex-deepseek-bridge doctor --live
-codex-deepseek-bridge report
-codex-deepseek-bridge restore
+codex-deepseek-bridge doctor        # is the bridge healthy and configured?
+codex-deepseek-bridge doctor --live # make one real DeepSeek call, end to end
+codex-deepseek-bridge report        # open the local report
+codex-deepseek-bridge restore       # put Codex back the way it was
 ```
 
-`report` starts the bridge if needed and opens the local report in your browser:
+On macOS, `doctor` also flags the signature and Keychain situation when the Desktop patch left Codex
+locally signed, so you know when reinstalling Codex will quiet the launch prompts.
 
-```text
-http://localhost:8787/report
-```
-
-The report is read-only. It shows every DeepSeek call, token and cache usage, latency, and
-prompt-prefix stability, with a per-call detail view. No prompt text is stored or shown. The bridge
-binds to the local loopback interface (`127.0.0.1`) and uploads no telemetry.
-
-## Privacy And Responsibility
+## Privacy and responsibility
 
 - The bridge sends model requests to DeepSeek.
 - It stores your DeepSeek key locally with owner-only permissions.
@@ -164,9 +211,11 @@ The optional Desktop patch modifies local Codex Desktop app files on your machin
 legal, workplace, and contract obligations before using it. This project is provided under
 Apache-2.0 without warranty and is not affiliated with OpenAI or DeepSeek.
 
-## Node Install
+## Install with npm
 
-If you prefer a global command and already have Node:
+Prefer a global command and already have Node? Installing with npm puts `codex-deepseek-bridge` on
+your `PATH`, so you can drop the `./codex-deepseek-bridge-macos` prefix and just run
+`codex-deepseek-bridge`:
 
 ```bash
 npm install -g github:JetXu-LLM/codex-deepseek-bridge

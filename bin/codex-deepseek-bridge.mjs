@@ -29,6 +29,7 @@ import {
 import { downloadVerifiedAsset, rollbackBinary, stageBinarySwap } from "../src/upgrade.mjs";
 import { buildCacheReport, defaultLogFile, formatCacheReport, loadJsonl } from "../src/cache-report.mjs";
 import { inspectCodexDesktopPatch, patchCodexDesktop, restoreCodexDesktopPatch } from "../src/desktop-patch.mjs";
+import { createFormatter } from "../src/cli-format.mjs";
 
 const REPO_URL = "https://github.com/JetXu-LLM/codex-deepseek-bridge";
 
@@ -198,99 +199,165 @@ async function appendUpdateLine(currentVersion, env, bridgeHome) {
 
 // ---- setup ------------------------------------------------------------------
 
-function historyLine(result) {
-  if (result?.historyPreserved) {
-    if (result.providerMode === "openai_base_url") {
-      return "History: OpenAI-provider local history should stay visible through the official openai_base_url path.";
-    }
-    return `History: local history for provider ${result.providerId} should stay visible.`;
-  }
-  return "History: existing chats are unchanged and return after restore, but chats under another provider may be hidden while DeepSeek is active.";
-}
-
 function catalogIncludesFlash(stateOrResult) {
   return Array.isArray(stateOrResult?.catalogModelIds) && stateOrResult.catalogModelIds.includes("deepseek-flash");
 }
 
-function setupSuccessMessage(result, started) {
-  const loginMode = result.loginMode;
-  const runningLine = started
-    ? `Bridge running: http://localhost:${result.port}/report`
-    : "Start the bridge with: codex-deepseek-bridge start";
-  const modelLine = catalogIncludesFlash(result)
-    ? "Next: restart Codex, then pick deepseek-pro or deepseek-flash."
-    : "Next: restart Codex. Codex is configured for deepseek-pro; deepseek-flash is enabled only when the Desktop compatibility patch is active.";
-  if (loginMode === "chatgpt") {
-    return [
-      "Configured Codex for DeepSeek. Your ChatGPT login was left unchanged.",
-      historyLine(result),
-      runningLine,
-      modelLine,
-      "Start the bridge again later with: codex-deepseek-bridge start",
-    ].join("\n");
+// Concise, prefix-free history status for the setup summary section.
+function historyStatusLine(result) {
+  if (result?.historyPreserved) {
+    if (result.providerMode === "openai_base_url") {
+      return "local history stays visible through the official openai_base_url path";
+    }
+    return `local history for provider ${result.providerId} stays visible`;
   }
-  if (loginMode === "uncertain") {
-    return [
-      "Configured Codex for DeepSeek. I could not confirm your Codex login state, so I left it unchanged.",
-      historyLine(result),
-      runningLine,
-      modelLine,
-    ].join("\n");
-  }
-  if (loginMode === "api-key") {
-    return [
-      "Configured Codex for DeepSeek. Your existing API-key login was left unchanged.",
-      historyLine(result),
-      runningLine,
-      modelLine,
-      "Start the bridge again later with: codex-deepseek-bridge start",
-    ].join("\n");
-  }
-  // loginMode === "none"
-  return [
-    "Configured Codex for DeepSeek. No Codex login was changed; the bridge will use your stored DeepSeek key.",
-    historyLine(result),
-    runningLine,
-    modelLine,
-    "Start the bridge again later with: codex-deepseek-bridge start",
-    `Tip: star the repo so this command is easy to find — ${REPO_URL}`,
-  ].join("\n");
+  return "existing chats are unchanged and return after restore; some chats under another provider may be hidden while DeepSeek is active";
 }
 
-function desktopPatchLine(result) {
-  const launcher = result?.launcherPath ? ` Use the managed Windows launcher: ${result.launcherPath}` : "";
+function loginStatusLine(loginMode) {
+  switch (loginMode) {
+    case "chatgpt":
+      return "ChatGPT login left unchanged";
+    case "api-key":
+      return "API-key login left unchanged";
+    case "uncertain":
+      return "login state unconfirmed, so it was left unchanged";
+    default:
+      return "no Codex login changed (the bridge uses your stored DeepSeek key)";
+  }
+}
+
+function modelsStatusLine(result) {
+  return catalogIncludesFlash(result)
+    ? "deepseek-pro and deepseek-flash published to the picker"
+    : "deepseek-pro published (deepseek-flash needs the Desktop patch)";
+}
+
+// The framed guidance shown when the Desktop patch cannot write to Codex.
+function notWritableCallout(platform) {
+  if (platform === "win32") {
+    return [
+      "Action needed: the Desktop patch was skipped.",
+      "",
+      "Codex could not be modified, usually because it is still running.",
+      "",
+      "To enable it:",
+      "  1. Quit Codex completely",
+      "  2. Re-run: codex-deepseek-bridge setup --desktop-patch",
+      "",
+      "deepseek-pro already works without the patch -- it only adds deepseek-flash and the full model picker.",
+    ];
+  }
+  return [
+    "Action needed: the Desktop patch was skipped.",
+    "",
+    "Codex.app could not be modified. On macOS this is almost always App Management protection, not a file-permission problem.",
+    "",
+    "To enable it:",
+    "  1. Open System Settings > Privacy & Security > App Management",
+    "  2. Turn on your terminal (Terminal, iTerm, or your editor)",
+    "  3. Re-run: codex-deepseek-bridge setup --desktop-patch",
+    "",
+    "sudo does not help here. deepseek-pro already works without the patch -- it only adds deepseek-flash and the full model picker.",
+  ];
+}
+
+// Render the Desktop-patch outcome as its own block: a quiet one-liner for
+// expected states, a highlighted box when the user needs to act.
+function renderDesktopPatch(result, fmt, platform) {
+  const head = fmt.label.bold("Desktop compatibility patch");
+  const indented = (text) => [head, `  ${text}`].join("\n");
+  const launcher = result?.launcherPath ? `Managed launcher: ${result.launcherPath}` : "";
   switch (result?.status) {
     case "patched":
-      return `Codex Desktop compatibility patch: applied. Restore will undo it.${launcher}`;
-    case "already-patched":
-      return `Codex Desktop compatibility patch: already applied.${launcher}`;
-    case "disabled":
-      return "Codex Desktop compatibility patch: skipped.";
+    case "already-patched": {
+      const items = [
+        fmt.label.ok(
+          result.status === "patched"
+            ? "applied -- restart Codex for deepseek-flash and the full picker"
+            : "already applied",
+        ),
+      ];
+      if (launcher) {
+        items.push(launcher);
+      }
+      if (platform === "darwin") {
+        items.push(
+          fmt.label.warn(
+            "macOS will ask to allow Keychain access (Codex is now signed locally) -- click Always Allow. Reinstalling or updating Codex restores the original signature.",
+          ),
+        );
+      }
+      return [head, ...items.map((item) => `  ${item}`)].join("\n");
+    }
     case "needs-consent":
-      return "Codex Desktop compatibility patch: skipped. Run setup --desktop-patch to apply it explicitly.";
+    case "patchable":
+      return indented(
+        fmt.label.dim(
+          "not applied. deepseek-pro is ready now; for deepseek-flash and the full picker, re-run: setup --desktop-patch",
+        ),
+      );
+    case "disabled":
+      return indented(fmt.label.dim("skipped (--no-desktop-patch)"));
     case "unsupported":
-      return "Codex Desktop compatibility patch: not supported on this platform.";
+      return indented(fmt.label.dim("not needed on this platform"));
     case "missing":
-      return "Codex Desktop compatibility patch: Codex Desktop app was not found.";
-    case "not-writable":
-      return "Codex Desktop compatibility patch: skipped because Codex.app is not writable. Grant your terminal access to modify Codex.app, then re-run setup --desktop-patch.";
+      return indented(fmt.label.dim("Codex Desktop app not found; config-only deepseek-pro still works"));
     case "target-not-found":
-      return "Codex Desktop compatibility patch: skipped because this Codex Desktop build was not recognized.";
+      return indented(fmt.label.dim("skipped: this Codex Desktop build was not recognized"));
     case "ambiguous":
-      return "Codex Desktop compatibility patch: skipped because the Desktop bundle matched more than once.";
+      return indented(fmt.label.dim("skipped: more than one Codex Desktop bundle matched"));
     case "missing-info-plist":
     case "missing-code-signature":
     case "missing-root-executable":
-      return "Codex Desktop compatibility patch: skipped because the Codex Desktop app bundle is incomplete.";
-    case "error":
-      return result.restoreReason
-        ? `Codex Desktop compatibility patch: failed (${result.reason || "unknown error"}; restore also failed: ${result.restoreReason}).`
-        : `Codex Desktop compatibility patch: failed (${result.reason || "unknown error"}).`;
-    case "patchable":
-      return "Codex Desktop compatibility patch: available. Run setup --desktop-patch to apply it explicitly.";
+      return indented(fmt.label.dim("skipped: the Codex Desktop bundle looks incomplete"));
+    case "not-writable":
+      return [head, fmt.box(notWritableCallout(platform), { tone: "red" })].join("\n");
+    case "error": {
+      const lines = ["Action needed: the Desktop patch failed.", "", `Reason: ${result.reason || "unknown error"}.`];
+      if (result.restoreReason) {
+        lines.push(`Restore also failed: ${result.restoreReason}.`);
+      }
+      if (String(result.errorCode) === "EPERM" && platform === "darwin") {
+        lines.push(
+          "",
+          "This looks like macOS App Management. Open System Settings > Privacy & Security > App Management, enable your terminal, then re-run. sudo does not help.",
+        );
+      }
+      lines.push("", "deepseek-pro already works without the patch.");
+      return [head, fmt.box(lines, { tone: "red" })].join("\n");
+    }
     default:
-      return "Codex Desktop compatibility patch: unknown state.";
+      return indented(fmt.label.dim("unknown state"));
   }
+}
+
+// Compose the whole setup summary: a banner, labeled sections, and the
+// Desktop-patch outcome (highlighted when action is required).
+function renderSetupReport(fmt, { result, started, desktopPatch, platform }) {
+  const kv = (key, value) => `${key.padEnd(8)} ${value}`;
+  const running = started
+    ? fmt.label.ok(`running -> http://localhost:${result.port}/report`)
+    : fmt.label.warn("not started (run: codex-deepseek-bridge start)");
+  const blocks = [
+    fmt.title("Codex DeepSeek Bridge  -  setup complete"),
+    fmt.section("Bridge", [kv("Status", running), kv("Key", "DeepSeek key stored on this machine")]),
+    fmt.section("Codex", [
+      kv("Models", modelsStatusLine(result)),
+      kv("Login", loginStatusLine(result.loginMode)),
+      kv("History", historyStatusLine(result)),
+    ]),
+    renderDesktopPatch(desktopPatch, fmt, platform),
+    fmt.section("Next steps", [
+      "1. Restart Codex",
+      catalogIncludesFlash(result) ? "2. Pick deepseek-pro or deepseek-flash" : "2. Pick deepseek-pro in the model picker",
+      "3. Watch traffic and cache stats: codex-deepseek-bridge report",
+    ]),
+  ];
+  if (result.loginMode === "none") {
+    blocks.push(fmt.label.dim(`Tip: star the repo so this is easy to find again -- ${REPO_URL}`));
+  }
+  return blocks.filter(Boolean).join("\n\n");
 }
 
 function doctorDesktopPatchText(result) {
@@ -318,8 +385,11 @@ function doctorDesktopPatchText(result) {
 }
 
 function doctorSignatureLine(result) {
-  if (result?.macCodeSignature?.adhoc && result.managedBackup === false) {
-    return "Codex signature: local/ad-hoc and not managed by this bridge state. If Codex keeps asking for Keychain access, reinstall or update Codex to restore the official signature.";
+  if (result?.macCodeSignature?.adhoc) {
+    if (result.managedBackup === false) {
+      return "Codex signature: local/ad-hoc and not managed by this bridge. If Codex keeps asking for Keychain access, reinstall or update Codex to restore the official signature.";
+    }
+    return "Codex signature: local/ad-hoc because the Desktop patch is active, so macOS may ask for Keychain access on launch. Run restore to return to the original signature, or click Always Allow.";
   }
   return "";
 }
@@ -398,8 +468,12 @@ async function cmdSetup(args, env, config) {
     started = true;
   }
 
-  out(desktopPatchLine(desktopPatch));
-  out(setupSuccessMessage(result, started));
+  out(renderSetupReport(createFormatter({ stream: process.stdout, env }), {
+    result,
+    started,
+    desktopPatch,
+    platform: process.platform,
+  }));
   await appendUpdateLine(bridgeVersion(), env, bridgeHome);
   return 0;
 }
