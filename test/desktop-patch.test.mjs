@@ -81,11 +81,12 @@ function writeFakeBundle(root, source) {
   const appAsar = path.join(resources, "app.asar");
   const infoPlist = path.join(app, "Contents", "Info.plist");
   const rootExecutable = path.join(macos, "Codex");
+  const codeSignature = signature;
   writeFakeAsar(appAsar, source);
   fs.writeFileSync(infoPlist, "plist-original");
   fs.writeFileSync(path.join(signature, "CodeResources"), "signature-original");
   fs.writeFileSync(rootExecutable, "executable-original", { mode: 0o755 });
-  return { app, appAsar, infoPlist, rootExecutable };
+  return { app, appAsar, infoPlist, rootExecutable, codeSignature };
 }
 
 function writeFakeWindowsBundleAt(app, source) {
@@ -251,6 +252,9 @@ test("restoreCodexDesktopPatch restores the official signature without re-signin
   });
   assert.equal(patch.status, "patched");
   assert.equal(fs.readFileSync(bundle.rootExecutable, "utf8"), "executable-signed");
+  const appAsarInodeBeforeRestore = fs.statSync(bundle.appAsar).ino;
+  const infoPlistInodeBeforeRestore = fs.statSync(bundle.infoPlist).ino;
+  const rootExecutableInodeBeforeRestore = fs.statSync(bundle.rootExecutable).ino;
 
   const restore = restoreCodexDesktopPatch({
     appAsarPath: bundle.appAsar,
@@ -266,9 +270,13 @@ test("restoreCodexDesktopPatch restores the official signature without re-signin
   assert.equal(restore.status, "restored");
   assert.equal(signCommands.length, 1);
   assert.equal(fs.readFileSync(bundle.rootExecutable, "utf8"), "executable-original");
+  assert.notEqual(fs.statSync(bundle.appAsar).ino, appAsarInodeBeforeRestore);
+  assert.notEqual(fs.statSync(bundle.infoPlist).ino, infoPlistInodeBeforeRestore);
+  assert.notEqual(fs.statSync(bundle.rootExecutable).ino, rootExecutableInodeBeforeRestore);
   assert.equal(state.active, false);
   assert.equal(state.restoreCodesignVerified, true);
   assert.equal(state.restoreLaunchAssessmentAccepted, true);
+  assert.equal(state.restoreFilesAtomicallyReplaced, true);
 });
 
 test("restoreCodexDesktopPatch waits and verifies again after restoring a macOS signature", () => {
@@ -582,6 +590,57 @@ test("restoreCodexDesktopPatch reassesses older inactive macOS restore state", (
   assert.equal(restore.changed, false);
   assert.equal(assessmentCalls, 1);
   assert.equal(state.restoreCodesignVerified, true);
+  assert.equal(state.restoreLaunchAssessmentAccepted, true);
+});
+
+test("restoreCodexDesktopPatch atomically refreshes older inactive macOS restore files", () => {
+  const root = tempRoot();
+  const bridgeHome = path.join(root, "bridge");
+  const bundle = writeFakeBundle(
+    root,
+    "function e({authMethod:e,availableModels:t,defaultModel:n,models:r,useHiddenModels:i}){let a=[],o=null,s=i&&e!==`amazonBedrock`;return r.forEach(n=>{if(s?t.has(n.model):!n.hidden){a.push(n)}})}",
+  );
+  const runCommand = () => {};
+  const patch = patchCodexDesktop({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    platform: "darwin",
+  });
+  assert.equal(patch.status, "patched");
+  fs.copyFileSync(patch.appAsarBackupPath, bundle.appAsar);
+  fs.copyFileSync(patch.infoPlistBackupPath, bundle.infoPlist);
+  fs.copyFileSync(patch.rootExecutableBackupPath, bundle.rootExecutable);
+  fs.rmSync(bundle.codeSignature, { recursive: true, force: true });
+  fs.cpSync(patch.codeSignatureBackupPath, bundle.codeSignature, { recursive: true });
+  const staleState = {
+    ...patch,
+    active: false,
+    restoredAt: new Date().toISOString(),
+    restoreCodesignVerified: true,
+    restoreLaunchAssessmentAccepted: true,
+  };
+  delete staleState.restoreFilesAtomicallyReplaced;
+  fs.writeFileSync(path.join(bridgeHome, "desktop-patch-state.json"), `${JSON.stringify(staleState, null, 2)}\n`);
+  const appAsarInodeBeforeRefresh = fs.statSync(bundle.appAsar).ino;
+  const rootExecutableInodeBeforeRefresh = fs.statSync(bundle.rootExecutable).ino;
+
+  const restore = restoreCodexDesktopPatch({
+    appAsarPath: bundle.appAsar,
+    bridgeHome,
+    runCommand,
+    isCodexAppRunning: () => false,
+    stabilizationMs: 0,
+    platform: "darwin",
+  });
+  const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "desktop-patch-state.json"), "utf8"));
+
+  assert.equal(restore.status, "restored");
+  assert.equal(restore.changed, true);
+  assert.notEqual(fs.statSync(bundle.appAsar).ino, appAsarInodeBeforeRefresh);
+  assert.notEqual(fs.statSync(bundle.rootExecutable).ino, rootExecutableInodeBeforeRefresh);
+  assert.equal(state.restoreFilesAtomicallyReplaced, true);
   assert.equal(state.restoreLaunchAssessmentAccepted, true);
 });
 

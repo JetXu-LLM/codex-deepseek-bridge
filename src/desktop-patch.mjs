@@ -701,10 +701,48 @@ function copyFileBackup(source, backup) {
   fs.copyFileSync(source, backup);
 }
 
+function restoreFileBackup(source, target, { replace = false } = {}) {
+  if (!replace) {
+    fs.copyFileSync(source, target);
+    return;
+  }
+  ensureDir(path.dirname(target));
+  const temp = path.join(path.dirname(target), `.${path.basename(target)}.dscb-restore-${process.pid}-${timestamp()}.tmp`);
+  try {
+    fs.copyFileSync(source, temp);
+    try {
+      fs.chmodSync(temp, fs.statSync(source).mode);
+    } catch {
+      // Best effort. The copied file content is what matters for signature restore.
+    }
+    fs.renameSync(temp, target);
+  } finally {
+    fs.rmSync(temp, { force: true });
+  }
+}
+
 function copyDirBackup(source, backup) {
   ensureDir(path.dirname(backup));
   fs.rmSync(backup, { recursive: true, force: true });
   fs.cpSync(source, backup, { recursive: true });
+}
+
+function restoreDirBackup(source, target, { replace = false } = {}) {
+  if (!replace) {
+    fs.rmSync(target, { recursive: true, force: true });
+    fs.cpSync(source, target, { recursive: true });
+    return;
+  }
+  ensureDir(path.dirname(target));
+  const temp = path.join(path.dirname(target), `.${path.basename(target)}.dscb-restore-${process.pid}-${timestamp()}.tmp`);
+  try {
+    fs.rmSync(temp, { recursive: true, force: true });
+    fs.cpSync(source, temp, { recursive: true });
+    fs.rmSync(target, { recursive: true, force: true });
+    fs.renameSync(temp, target);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
 }
 
 function backupPaths(bridgeHome, originalHash) {
@@ -792,19 +830,18 @@ function ensureWindowsManagedCopy({ appBundlePath, bridgeHome }) {
   };
 }
 
-function restoreBackups({ appAsarPath, infoPlistPath, codeSignaturePath, rootExecutablePath, state }) {
+function restoreBackups({ appAsarPath, infoPlistPath, codeSignaturePath, rootExecutablePath, state, replaceFiles = false }) {
   if (state?.appAsarBackupPath && fs.existsSync(state.appAsarBackupPath)) {
-    fs.copyFileSync(state.appAsarBackupPath, appAsarPath);
+    restoreFileBackup(state.appAsarBackupPath, appAsarPath, { replace: replaceFiles });
   }
   if (state?.infoPlistBackupPath && fs.existsSync(state.infoPlistBackupPath)) {
-    fs.copyFileSync(state.infoPlistBackupPath, infoPlistPath);
+    restoreFileBackup(state.infoPlistBackupPath, infoPlistPath, { replace: replaceFiles });
   }
   if (state?.codeSignatureBackupPath && fs.existsSync(state.codeSignatureBackupPath)) {
-    fs.rmSync(codeSignaturePath, { recursive: true, force: true });
-    fs.cpSync(state.codeSignatureBackupPath, codeSignaturePath, { recursive: true });
+    restoreDirBackup(state.codeSignatureBackupPath, codeSignaturePath, { replace: replaceFiles });
   }
   if (rootExecutablePath && state?.rootExecutableBackupPath && fs.existsSync(state.rootExecutableBackupPath)) {
-    fs.copyFileSync(state.rootExecutableBackupPath, rootExecutablePath);
+    restoreFileBackup(state.rootExecutableBackupPath, rootExecutablePath, { replace: replaceFiles });
   }
 }
 
@@ -825,6 +862,26 @@ function missingMacSignatureBackups(state) {
   ]
     .filter(([key]) => !state?.[key] || !fs.existsSync(state[key]))
     .map(([, label]) => label);
+}
+
+function fileMatchesBackup(file, backup) {
+  try {
+    return Boolean(file && backup && fs.existsSync(file) && fs.existsSync(backup) && sha256File(file) === sha256File(backup));
+  } catch {
+    return false;
+  }
+}
+
+function canRefreshInactiveMacRestore({ state, appAsarPath, infoPlistPath, codeSignaturePath, rootExecutablePath }) {
+  if (state?.restoreFilesAtomicallyReplaced === true || missingMacSignatureBackups(state).length) {
+    return false;
+  }
+  return (
+    fileMatchesBackup(appAsarPath, state.appAsarBackupPath) &&
+    fileMatchesBackup(infoPlistPath, state.infoPlistBackupPath) &&
+    fileMatchesBackup(rootExecutablePath, state.rootExecutableBackupPath) &&
+    fileMatchesBackup(path.join(codeSignaturePath, "CodeResources"), path.join(state.codeSignatureBackupPath, "CodeResources"))
+  );
 }
 
 function patchFailure(error, restoreReason = "") {
@@ -1144,6 +1201,7 @@ export function patchCodexDesktop({
         codeSignatureBackupPath: backups.codeSignatureBackupPath,
         rootExecutableBackupPath: backups.rootExecutableBackupPath,
       },
+      replaceFiles: true,
     });
     return {
       ...patchFailure(error, restoreReason),
@@ -1244,26 +1302,68 @@ export function restoreCodexDesktopPatch({
 
   if (!state.active) {
     const launchAssessmentKnownAccepted = statePlatform !== "darwin" || state.restoreLaunchAssessmentAccepted === true;
-    if (state.restoreCodesignVerified !== false && launchAssessmentKnownAccepted) {
+    const canRefreshInactiveRestore =
+      statePlatform === "darwin" &&
+      canRefreshInactiveMacRestore({
+        state,
+        appAsarPath: resolvedAsar,
+        infoPlistPath,
+        codeSignaturePath,
+        rootExecutablePath,
+      });
+    if (state.restoreCodesignVerified !== false && launchAssessmentKnownAccepted && !canRefreshInactiveRestore) {
       return { changed: false, status: "not-managed" };
     }
+    if (
+      canRefreshInactiveRestore &&
+      statePlatform === "darwin" &&
+      isCodexAppRunning({ appBundlePath: resolvedBundle, platform: statePlatform })
+    ) {
+      return {
+        changed: false,
+        status: "app-running",
+        appAsarPath: resolvedAsar,
+        appBundlePath: resolvedBundle,
+      };
+    }
     try {
+      let preRestoreBackupPath = state.preRestoreBackupPath || "";
+      if (canRefreshInactiveRestore) {
+        preRestoreBackupPath = path.join(patchWorkDir(bridgeHome), `app.asar.pre-restore.${timestamp()}.bak`);
+        ensureDir(path.dirname(preRestoreBackupPath));
+        if (fs.existsSync(resolvedAsar)) {
+          fs.copyFileSync(resolvedAsar, preRestoreBackupPath);
+        }
+        restoreBackups({
+          appAsarPath: resolvedAsar,
+          infoPlistPath,
+          codeSignaturePath,
+          rootExecutablePath,
+          state,
+          replaceFiles: true,
+        });
+      }
       const signature = stabilizeRestoredMacSignature({ appBundlePath: resolvedBundle, runCommand, stabilizationMs, platform: statePlatform });
       writeJson(statePath, {
         ...state,
+        restoredAt: canRefreshInactiveRestore ? new Date().toISOString() : state.restoredAt,
+        preRestoreBackupPath,
         restoreCodesignVerified: signature.codesignVerified,
         restoreLaunchAssessmentAccepted: signature.launchAssessmentAccepted,
         restoreLaunchAssessmentInitiallyAccepted: signature.initiallyLaunchAssessmentAccepted,
         restoreCodesignStabilized: signature.stabilized,
         restoreCodesignStabilizationMs: signature.stabilizationMs,
+        restoreFilesAtomicallyReplaced: canRefreshInactiveRestore ? true : state.restoreFilesAtomicallyReplaced,
       });
       return {
-        changed: false,
-        status: signature.verified ? "not-managed" : "signature-restore-failed",
+        changed: canRefreshInactiveRestore,
+        status: signature.verified ? (canRefreshInactiveRestore ? "restored" : "not-managed") : "signature-restore-failed",
         appAsarPath: resolvedAsar,
         appBundlePath: resolvedBundle,
+        preRestoreBackupPath,
         restoreCodesignVerified: signature.codesignVerified,
         restoreLaunchAssessmentAccepted: signature.launchAssessmentAccepted,
+        restoreFilesAtomicallyReplaced: canRefreshInactiveRestore ? true : state.restoreFilesAtomicallyReplaced,
       };
     } catch (error) {
       return {
@@ -1312,11 +1412,14 @@ export function restoreCodexDesktopPatch({
     fs.copyFileSync(resolvedAsar, preRestoreBackupPath);
   }
 
-  fs.copyFileSync(state.appAsarBackupPath, resolvedAsar);
-  fs.copyFileSync(state.infoPlistBackupPath, infoPlistPath);
-  fs.copyFileSync(state.rootExecutableBackupPath, rootExecutablePath);
-  fs.rmSync(codeSignaturePath, { recursive: true, force: true });
-  fs.cpSync(state.codeSignatureBackupPath, codeSignaturePath, { recursive: true });
+  restoreBackups({
+    appAsarPath: resolvedAsar,
+    infoPlistPath,
+    codeSignaturePath,
+    rootExecutablePath,
+    state,
+    replaceFiles: true,
+  });
 
   const signature = stabilizeRestoredMacSignature({
     appBundlePath: resolvedBundle,
@@ -1336,6 +1439,7 @@ export function restoreCodexDesktopPatch({
     restoreLaunchAssessmentInitiallyAccepted: signature.initiallyLaunchAssessmentAccepted,
     restoreCodesignStabilized: signature.stabilized,
     restoreCodesignStabilizationMs: signature.stabilizationMs,
+    restoreFilesAtomicallyReplaced: true,
   };
   writeJson(statePath, restoredState);
   return {
@@ -1350,5 +1454,6 @@ export function restoreCodexDesktopPatch({
     restoreLaunchAssessmentInitiallyAccepted: signature.initiallyLaunchAssessmentAccepted,
     restoreCodesignStabilized: signature.stabilized,
     restoreCodesignStabilizationMs: signature.stabilizationMs,
+    restoreFilesAtomicallyReplaced: true,
   };
 }

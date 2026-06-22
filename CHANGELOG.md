@@ -5,6 +5,19 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.24
+
+Fixes a deeper macOS Desktop restore failure where Codex could pass signature checks but still crash
+at launch with `Code Signature Invalid`.
+
+### Fixed
+
+- macOS `restore` now restores official Codex files by atomically replacing them instead of
+  overwriting them in place. This gives the restored executable and signed resources fresh file
+  identity and avoids launch-time `Invalid Page` code-signing kills.
+- Machines already restored by `0.1.23` or earlier can run `restore` again; if the current files
+  still match the saved official backups, the bridge safely refreshes them with atomic replacement.
+
 ## 0.1.23
 
 Makes Desktop restore wait for macOS launch acceptance and makes the Windows quick start harder to

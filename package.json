@@ -1,6 +1,6 @@
 {
   "name": "codex-deepseek-bridge",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "description": "A tiny Responses-compatible local bridge that lets OpenAI Codex use DeepSeek LLM APIs.",
   "type": "module",
   "license": "Apache-2.0",
