@@ -107,6 +107,63 @@ test("backs up an existing config and restore returns the original", () => {
   assert.equal(fs.readFileSync(result.configPath, "utf8"), original);
 });
 
+test("restore removes config.toml when setup created it on a zero-config machine", () => {
+  const root = tempRoot();
+  const codexHome = path.join(root, "codex");
+  const bridgeHome = path.join(root, "bridge");
+
+  const result = configureCodex({ codexHome, bridgeHome, apiKey: "deepseek-x", runCodex: makeRunCodex([]) });
+  assert.equal(fs.existsSync(result.configPath), true);
+  const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "install-state.json"), "utf8"));
+  assert.equal(state.configExistedBeforeSetup, false);
+  assert.equal(state.backupPath, "");
+
+  const restore = restoreCodexConfig({ codexHome, bridgeHome });
+  assert.equal(restore.changed, true);
+  assert.equal(restore.removedConfig, true);
+  assert.equal(fs.existsSync(result.configPath), false);
+});
+
+test("re-running setup migrates legacy zero-config state so restore removes config.toml", () => {
+  const root = tempRoot();
+  const codexHome = path.join(root, "codex");
+  const bridgeHome = path.join(root, "bridge");
+
+  const first = configureCodex({ codexHome, bridgeHome, apiKey: "deepseek-x", runCodex: makeRunCodex([]) });
+  const legacyStatePath = path.join(bridgeHome, "install-state.json");
+  const legacyState = JSON.parse(fs.readFileSync(legacyStatePath, "utf8"));
+  delete legacyState.configExistedBeforeSetup;
+  fs.writeFileSync(legacyStatePath, `${JSON.stringify(legacyState, null, 2)}\n`);
+
+  configureCodex({ codexHome, bridgeHome, apiKey: "", runCodex: makeRunCodex([]) });
+  const state = JSON.parse(fs.readFileSync(legacyStatePath, "utf8"));
+  assert.equal(state.configExistedBeforeSetup, false);
+
+  const restore = restoreCodexConfig({ codexHome, bridgeHome });
+  assert.equal(restore.removedConfig, true);
+  assert.equal(fs.existsSync(first.configPath), false);
+});
+
+test("restore keeps an originally empty config.toml empty", () => {
+  const root = tempRoot();
+  const codexHome = path.join(root, "codex");
+  const bridgeHome = path.join(root, "bridge");
+  fs.mkdirSync(codexHome, { recursive: true });
+  const configPath = path.join(codexHome, "config.toml");
+  fs.writeFileSync(configPath, "");
+
+  const result = configureCodex({ codexHome, bridgeHome, apiKey: "deepseek-x", runCodex: makeRunCodex([]) });
+  const state = JSON.parse(fs.readFileSync(path.join(bridgeHome, "install-state.json"), "utf8"));
+  assert.equal(state.configExistedBeforeSetup, true);
+  assert.equal(state.backupPath, "");
+
+  const restore = restoreCodexConfig({ codexHome, bridgeHome });
+  assert.equal(restore.changed, true);
+  assert.equal(restore.removedConfig, undefined);
+  assert.equal(fs.existsSync(result.configPath), true);
+  assert.equal(fs.readFileSync(result.configPath, "utf8"), "");
+});
+
 test("re-running setup is idempotent: one block, key and original backup preserved", () => {
   const root = tempRoot();
   const codexHome = path.join(root, "codex");

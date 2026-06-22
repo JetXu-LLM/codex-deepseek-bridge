@@ -81,6 +81,7 @@ if ((Get-Item $out).Length -lt 10MB) { throw "Download looks incomplete. Run the
 `setup` 会在 terminal 里要求你输入 DeepSeek API key。这个 key 不会被回显、打印、记录日志，
 也不会作为命令行参数传入。设置完成后，它会打印一段简短摘要：配置了什么、发布了哪些模型、
 以及你还需要做什么。然后你重启 Codex。
+如果你还没安装 Codex Desktop，`setup` 可以先安装官方 app，然后继续完成配置。
 如果有更新的 bridge 版本，`setup` 会先询问是否升级，并保留你本机保存的 key、日志和 report 数据。
 
 默认情况下，Codex 会使用 `deepseek-pro`。当前 Codex Desktop 还不会在界面里渲染 custom model

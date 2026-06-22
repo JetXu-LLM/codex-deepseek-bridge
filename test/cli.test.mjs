@@ -188,3 +188,39 @@ test("setup reuses an existing stored key after a normal restore", () => {
   assert.match(fs.readFileSync(path.join(codexHome, "config.toml"), "utf8"), /^model = "deepseek-pro"$/m);
   assert.equal(fs.readFileSync(path.join(bridgeHome, "deepseek-key"), "utf8").trim(), "deepseek-existing-key");
 });
+
+test("restore returns a zero-config machine to no config.toml", () => {
+  const root = tempRoot();
+  const codexHome = path.join(root, "codex");
+  const bridgeHome = path.join(root, "bridge");
+
+  const setup = spawnSync(process.execPath, [bin, "setup", "--from-stdin", "--no-start"], {
+    encoding: "utf8",
+    input: "deepseek-cli-key\n",
+    env: {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      DSCB_HOME: bridgeHome,
+      DSCB_DESKTOP_PATCH: "off",
+      DSCB_UPDATE_CHECK: "off",
+      PATH: "",
+    },
+  });
+  assert.equal(setup.status, 0);
+  assert.equal(fs.existsSync(path.join(codexHome, "config.toml")), true);
+
+  const restore = spawnSync(process.execPath, [bin, "restore"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      DSCB_HOME: bridgeHome,
+      DSCB_UPDATE_CHECK: "off",
+      PATH: "",
+    },
+  });
+
+  assert.equal(restore.status, 0);
+  assert.match(restore.stdout, /original no-config state restored/);
+  assert.equal(fs.existsSync(path.join(codexHome, "config.toml")), false);
+});

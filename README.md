@@ -79,6 +79,7 @@ if ((Get-Item $out).Length -lt 10MB) { throw "Download looks incomplete. Run the
 `setup` asks for your DeepSeek API key in the terminal. It is not echoed, printed, logged, or taken
 as a command-line argument. When setup finishes it prints a short summary — what was configured,
 which models are published, and any action you still need to take — then you restart Codex.
+If Codex Desktop is not installed yet, `setup` can install the official app first and continue.
 If a newer bridge release is available, `setup` asks before upgrading and keeps your stored key, logs, and report data.
 
 By default this keeps Codex on `deepseek-pro`. The composer shows `Custom` next to your reasoning

@@ -5,6 +5,21 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.25
+
+Smooths first-run setup on machines that do not have Codex Desktop installed yet.
+
+### Added
+
+- `setup` now detects when Codex Desktop is missing and, with the user's approval, installs the
+  official app first (`codex app "$HOME"` on macOS, Microsoft Store `winget` on Windows), then
+  continues the same setup flow.
+
+### Fixed
+
+- `restore` now returns zero-config machines to the original no-`config.toml` state, including
+  machines that first ran setup on an older bridge version before upgrading.
+
 ## 0.1.24
 
 Fixes a deeper macOS Desktop restore failure where Codex could pass signature checks but still crash

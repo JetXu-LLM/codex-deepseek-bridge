@@ -455,8 +455,15 @@ export function configureCodex({
   const catalogChanged = previousCatalog !== fs.readFileSync(catalogPath, "utf8");
 
   // Back up the user's original config once; preserve that backup across re-runs.
-  const existing = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : "";
+  const configExistsBeforeCurrentRun = fs.existsSync(configPath);
+  const existing = configExistsBeforeCurrentRun ? fs.readFileSync(configPath, "utf8") : "";
   const priorState = readJson(installStatePath(bridgeHome));
+  const originalConfigExisted =
+    hasManagedBlock(existing) && typeof priorState?.configExistedBeforeSetup === "boolean"
+      ? priorState.configExistedBeforeSetup
+      : hasManagedBlock(existing) && !priorState?.backupPath
+        ? Boolean(removeManagedBlock(existing).trim())
+        : configExistsBeforeCurrentRun;
   let backupPath = priorState?.backupPath || "";
   if (existing && !hasManagedBlock(existing)) {
     backupPath = `${configPath}.${timestamp()}.bak`;
@@ -502,6 +509,7 @@ export function configureCodex({
     backupPath,
     catalogPath,
     configPath,
+    configExistedBeforeSetup: originalConfigExisted,
     providerId: providerStrategy.provider,
     providerMode: providerStrategy.providerMode,
     providerSource: providerStrategy.providerSource,
@@ -581,7 +589,8 @@ export function restoreCodexConfig({
 
   const existing = fs.readFileSync(configPath, "utf8");
   const preRestoreBackupPath = `${configPath}.${timestamp()}.pre-restore.bak`;
-  const recordedBackup = backupPath || readJson(installStatePath(bridgeHome))?.backupPath || "";
+  const state = readJson(installStatePath(bridgeHome));
+  const recordedBackup = backupPath || state?.backupPath || "";
 
   if (recordedBackup) {
     if (!fs.existsSync(recordedBackup)) {
@@ -598,7 +607,15 @@ export function restoreCodexConfig({
 
   fs.writeFileSync(preRestoreBackupPath, existing);
   const restored = removeManagedBlock(existing);
-  fs.writeFileSync(configPath, restored ? `${restored}\n` : "");
+  if (restored) {
+    fs.writeFileSync(configPath, `${restored}\n`);
+    return { configPath, changed: true, preRestoreBackupPath, restoredFromBackup: false };
+  }
+  if (state?.configExistedBeforeSetup !== true) {
+    fs.rmSync(configPath, { force: true });
+    return { configPath, changed: true, preRestoreBackupPath, restoredFromBackup: false, removedConfig: true };
+  }
+  fs.writeFileSync(configPath, "");
   return { configPath, changed: true, preRestoreBackupPath, restoredFromBackup: false };
 }
 

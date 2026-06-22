@@ -30,6 +30,12 @@ import {
 import { downloadVerifiedAsset, rollbackBinary, stageBinarySwap } from "../src/upgrade.mjs";
 import { buildCacheReport, defaultLogFile, formatCacheReport, loadJsonl } from "../src/cache-report.mjs";
 import { inspectCodexDesktopPatch, patchCodexDesktop, restoreCodexDesktopPatch } from "../src/desktop-patch.mjs";
+import {
+  codexDesktopInstallPlan,
+  codexDesktopInstallWaitMs,
+  installCodexDesktopApp,
+  waitForCodexDesktop,
+} from "../src/codex-app.mjs";
 import { createFormatter } from "../src/cli-format.mjs";
 
 const REPO_URL = "https://github.com/JetXu-LLM/codex-deepseek-bridge";
@@ -46,7 +52,7 @@ function printHelp() {
   process.stdout.write(`codex-deepseek-bridge — run Codex on DeepSeek.
 
 Usage:
-  codex-deepseek-bridge setup [--from-stdin] [--port 8787] [--no-start] [--desktop-patch] [--no-desktop-patch] [--log-payloads|--no-log-payloads] [--yes] [--no-upgrade-check] [--print-prompt]
+  codex-deepseek-bridge setup [--from-stdin] [--port 8787] [--no-start] [--desktop-patch] [--no-desktop-patch] [--no-codex-app-install] [--log-payloads|--no-log-payloads] [--yes] [--no-upgrade-check] [--print-prompt]
   codex-deepseek-bridge start [--port 8787] [--log-payloads|--no-log-payloads]
   codex-deepseek-bridge report
   codex-deepseek-bridge doctor [--live]
@@ -430,6 +436,111 @@ async function maybeUpgradeBeforeSetup(args, rawArgs, env, bridgeHome) {
   return spawnSetup(process.execPath, restartArgs, env);
 }
 
+function envValueDisabled(value) {
+  return ["0", "false", "off", "no", "disabled"].includes(String(value || "").trim().toLowerCase());
+}
+
+function setupExplicitDesktopPatch(args, env) {
+  return args["desktop-patch"] === true || env.DSCB_DESKTOP_PATCH === "on";
+}
+
+function inspectCodexDesktopForInstall(env, bridgeHome) {
+  const inspectEnv = { ...env };
+  delete inspectEnv.DSCB_DESKTOP_PATCH;
+  return inspectCodexDesktopPatch({ env: inspectEnv, bridgeHome });
+}
+
+function renderCodexAppInstallNotice(fmt, plan) {
+  return fmt.section("Codex Desktop app not found", [
+    "Setup can install the official Codex Desktop app first, then continue.",
+    `Command  ${plan.displayCommand || "not available on this platform"}`,
+    "Keeps    your Codex config, DeepSeek key, logs, report data, and backups",
+  ]);
+}
+
+function renderCodexAppInstallUnavailable(fmt, plan) {
+  const action = plan.platform === "darwin"
+    ? 'Install or update the Codex CLI first, then run: codex app "$HOME"'
+    : plan.platform === "win32"
+      ? "Install Codex from the Microsoft Store, then re-run setup."
+      : "Install Codex Desktop on macOS or Windows, then re-run setup.";
+  return fmt.section("Action needed", [
+    `Automatic install is not available because ${plan.unavailableReason}.`,
+    action,
+  ]);
+}
+
+function shouldOfferCodexAppInstall(args, env) {
+  if (args["no-codex-app-install"] === true || envValueDisabled(env.DSCB_CODEX_APP_INSTALL)) {
+    return false;
+  }
+  if (env.DSCB_CODEX_APP || env.DSCB_CODEX_APP_ASAR) {
+    return false;
+  }
+  return args.yes === true || process.stdin.isTTY;
+}
+
+function requestCodexQuitForFreshDesktopPatch({ platform = process.platform } = {}) {
+  if (platform !== "darwin") {
+    return;
+  }
+  try {
+    spawnSync("osascript", ["-e", 'quit app "Codex"'], { stdio: "ignore" });
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+  } catch {
+    // If AppleScript is unavailable, patchCodexDesktop will report app-running
+    // with the normal user-facing guidance.
+  }
+}
+
+async function maybeInstallCodexDesktopBeforeSetup(args, env, bridgeHome) {
+  const before = inspectCodexDesktopForInstall(env, bridgeHome);
+  if (before?.status !== "missing") {
+    return { attempted: false, installed: false, inspect: before };
+  }
+  if (!shouldOfferCodexAppInstall(args, env)) {
+    return { attempted: false, installed: false, inspect: before };
+  }
+
+  const plan = codexDesktopInstallPlan({ platform: process.platform, env });
+  const fmt = createFormatter({ stream: process.stdout, env });
+  out(renderCodexAppInstallNotice(fmt, plan));
+
+  if (!plan.supported || !plan.available) {
+    out(renderCodexAppInstallUnavailable(fmt, plan));
+    return { attempted: false, installed: false, inspect: before, unavailable: true };
+  }
+
+  const accepted = args.yes === true ? true : await confirmDefaultYes("Install Codex now and continue setup? [Y/n] ");
+  if (!accepted) {
+    out("Continuing setup without installing Codex Desktop.");
+    return { attempted: false, installed: false, inspect: before, declined: true };
+  }
+
+  out(`Running: ${plan.displayCommand}`);
+  const install = installCodexDesktopApp({ plan, env });
+  if (!install.ok) {
+    err(`Codex install failed: ${install.reason || "unknown error"}. Continuing config-only setup.`);
+    return { attempted: true, installed: false, inspect: before, failed: true };
+  }
+
+  const waitMs = codexDesktopInstallWaitMs(env);
+  if (waitMs > 0) {
+    out("Waiting for Codex Desktop to finish installing...");
+  }
+  const after = waitForCodexDesktop({
+    inspect: () => inspectCodexDesktopForInstall(env, bridgeHome),
+    timeoutMs: waitMs,
+  });
+  if (after?.status === "missing") {
+    out("Codex installer finished, but the Desktop app is not visible yet. Finish the installer, then restart Codex or re-run setup.");
+    return { attempted: true, installed: false, inspect: after };
+  }
+
+  out("Codex Desktop app found. Continuing setup.");
+  return { attempted: true, installed: true, inspect: after };
+}
+
 // The framed guidance shown when the Desktop patch cannot write to Codex.
 function notWritableCallout(platform) {
   if (platform === "win32") {
@@ -675,6 +786,11 @@ async function cmdSetup(args, env, config, rawArgs = []) {
   const port = await findAvailablePort(preferredPort, config.host);
   if (port !== preferredPort) {
     out(`Port ${preferredPort} is in use. Using ${port} instead and writing it into your Codex config.`);
+  }
+
+  const codexAppInstall = await maybeInstallCodexDesktopBeforeSetup(args, env, bridgeHome);
+  if (codexAppInstall.installed && setupExplicitDesktopPatch(args, env)) {
+    requestCodexQuitForFreshDesktopPatch({ platform: process.platform });
   }
 
   const desktopPatch = await maybePatchCodexDesktop(args, env, bridgeHome);
@@ -940,6 +1056,11 @@ function renderRestoreReport(fmt, { result, desktopRestore, stopped, purgeResult
   const desktopChanged = Boolean(desktopRestore?.changed);
   const anyChanged = configChanged || desktopChanged || logout || purgeResult?.purged;
   const kv = (key, value) => `${key.padEnd(8)} ${value}`;
+  const configLine = result?.removedConfig
+    ? fmt.label.ok("original no-config state restored")
+    : configChanged
+      ? fmt.label.ok("previous config restored")
+      : fmt.label.dim("no bridge config found");
   const nextSteps = desktopRestore?.status === "app-running"
     ? ["1. Quit Codex completely", "2. Re-run: codex-deepseek-bridge restore"]
     : anyChanged
@@ -948,7 +1069,7 @@ function renderRestoreReport(fmt, { result, desktopRestore, stopped, purgeResult
   const blocks = [
     fmt.title(anyChanged ? "Codex DeepSeek Bridge  -  restore complete" : "Codex DeepSeek Bridge  -  nothing to restore"),
     fmt.section("Codex", [
-      kv("Config", configChanged ? fmt.label.ok("previous config restored") : fmt.label.dim("no bridge config found")),
+      kv("Config", configLine),
       kv("Desktop", desktopRestoreLine(desktopRestore, fmt)),
       kv("Login", logout ? fmt.label.ok("API-key login removed") : "left unchanged"),
     ]),
