@@ -231,7 +231,7 @@ test("repairs mangled streaming tool names before returning them to Codex", asyn
   const text = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(text, /"name":"mcp__computer_use__list_apps"/);
+  assert.match(text, /"name":"list_apps"/);
   assert.doesNotMatch(text, /mcp__computer_uselist_apps/);
 
   const report = await (await fetch(`http://127.0.0.1:${port}/report/data`)).json();

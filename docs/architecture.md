@@ -172,9 +172,8 @@ bearer gates the bridge and the upstream key must come from steps 1–2.
 - Codex freeform custom tools (such as `apply_patch`) wrap as `{ "input": "..." }` upstream and
   unwrap to a Codex `custom_tool_call`.
 - Function tools pass through.
-- Namespace tools keep Codex's double-underscore separator (for example,
-  `mcp__node_repl` + `js` becomes `mcp__node_repl__js`) so Codex can route returned MCP and plugin
-  tool calls.
+- Namespace tools use unique safe names upstream (for example, `mcp__node_repl__js`) and return the
+  original leaf name to Codex (for example, `js`) so Codex can route MCP and plugin tool calls.
 - DeepSeek thinking returns `reasoning_content`; the bridge carries it as opaque Codex reasoning
   state for multi-turn continuity. It is compatibility state, not encryption.
 - Usage mapping includes DeepSeek cache fields and `input_tokens_details.cached_tokens`.

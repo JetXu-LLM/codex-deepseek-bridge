@@ -4,7 +4,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { spawn, spawnSync } from "node:child_process";
 import { configFromArgs, defaultBridgeHome, defaultCodexHome, parseArgs } from "../src/config.mjs";
-import { findAvailablePort, isRunning, readPid, spawnDaemon, stopDaemon } from "../src/daemon.mjs";
+import { findAvailablePort, isRunning, readPid, spawnDaemon, stopBridgeDaemons } from "../src/daemon.mjs";
 import {
   codexLogout,
   codexVersion,
@@ -267,7 +267,7 @@ function loginStatusLine(loginMode) {
 function modelsStatusLine(result) {
   return catalogIncludesFlash(result)
     ? "deepseek-pro and deepseek-flash published to the picker"
-    : "deepseek-pro published (deepseek-flash needs the Desktop patch)";
+    : "deepseek-pro active (shown as Custom unless the Desktop patch is applied)";
 }
 
 function setupUpgradeCheckSkipped(args, env) {
@@ -299,6 +299,16 @@ function spawnSetup(command, commandArgs, env, { shell = false } = {}) {
   return 1;
 }
 
+function renderSetupUpgradeNotice(fmt, { current, latest, method }) {
+  return fmt.section("Update available", [
+    `Current  ${current}`,
+    `Latest   ${latest}`,
+    `Install  ${method}`,
+    "Plan     upgrade first, then continue this setup command",
+    "Keeps    stored key, logs, report data, and backups",
+  ]);
+}
+
 async function maybeUpgradeBeforeSetup(args, rawArgs, env, bridgeHome) {
   if (setupUpgradeCheckSkipped(args, env)) {
     return null;
@@ -320,12 +330,20 @@ async function maybeUpgradeBeforeSetup(args, rawArgs, env, bridgeHome) {
   const latest = check.latest;
   const method = detectInstallMethod();
   let accepted = args.yes === true;
+  let noticePrinted = false;
   if (!accepted && process.stdin.isTTY) {
-    accepted = await confirmDefaultYes(`A newer codex-deepseek-bridge is available (${current} -> ${latest}). Upgrade before setup? [Y/n] `);
+    const fmt = createFormatter({ stream: process.stdout, env });
+    out(renderSetupUpgradeNotice(fmt, { current, latest, method }));
+    noticePrinted = true;
+    accepted = await confirmDefaultYes("Upgrade now and continue setup? [Y/n] ");
   }
   if (!accepted) {
-    out(`Update available: ${latest} (you have ${current}). Continuing setup with the current version.`);
-    out("To upgrade first in a non-interactive run, add --yes or run: codex-deepseek-bridge upgrade");
+    if (!noticePrinted) {
+      const fmt = createFormatter({ stream: process.stdout, env });
+      out(renderSetupUpgradeNotice(fmt, { current, latest, method }));
+    }
+    out("Continuing setup with the current version.");
+    out("To upgrade first in a non-interactive run, add --yes.");
     return null;
   }
 
@@ -431,7 +449,7 @@ function renderDesktopPatch(result, fmt, platform) {
     case "patchable": {
       const items = [
         fmt.label.dim(
-          "not applied. deepseek-pro is ready now; for deepseek-flash and the full picker, re-run: setup --desktop-patch",
+          "not applied. Custom is ready and routes to deepseek-pro; for named deepseek-pro/deepseek-flash picker entries, re-run: setup --desktop-patch",
         ),
       ];
       if (platform === "darwin" && result?.macCodeSignature?.adhoc) {
@@ -485,6 +503,7 @@ function renderSetupReport(fmt, { result, started, desktopPatch, platform }) {
   const running = started
     ? fmt.label.ok(`running -> http://localhost:${result.port}/report`)
     : fmt.label.warn("not started (run: codex-deepseek-bridge start)");
+  const fullPicker = catalogIncludesFlash(result);
   const blocks = [
     fmt.title("Codex DeepSeek Bridge  -  setup complete"),
     fmt.section("Bridge", [kv("Status", running), kv("Key", "DeepSeek key stored on this machine")]),
@@ -496,7 +515,9 @@ function renderSetupReport(fmt, { result, started, desktopPatch, platform }) {
     renderDesktopPatch(desktopPatch, fmt, platform),
     fmt.section("Next steps", [
       "1. Restart Codex",
-      catalogIncludesFlash(result) ? "2. Pick deepseek-pro or deepseek-flash" : "2. Pick deepseek-pro in the model picker",
+      fullPicker
+        ? "2. Pick deepseek-pro or deepseek-flash in the model picker"
+        : "2. Pick Custom in the model picker; it routes to deepseek-pro",
       "3. Watch traffic and cache stats: codex-deepseek-bridge report",
     ]),
   ];
@@ -592,7 +613,7 @@ async function cmdSetup(args, env, config, rawArgs = []) {
 
   const preferredPort = Number(args.port || 8787);
   if (args["no-start"] !== true) {
-    stopDaemon(config.pidFile);
+    await stopBridgeDaemons(config.pidFile);
   }
   const port = await findAvailablePort(preferredPort, config.host);
   if (port !== preferredPort) {
@@ -832,9 +853,61 @@ function printRestoreMessage(message, stopped, purgeResult, desktopRestore) {
   }
 }
 
-function cmdRestore(args, env, config) {
+function desktopRestoreLine(desktopRestore, fmt) {
+  switch (desktopRestore?.status) {
+    case "restored":
+      return fmt.label.ok("restored");
+    case "signature-repaired":
+      return fmt.label.ok("official signature repaired");
+    case "not-managed":
+      return fmt.label.dim("not active");
+    case "unmanaged-local-signature":
+      return fmt.label.warn("local signature is not managed by this bridge");
+    case "missing-backup":
+    case "missing-signature-backup":
+    case "signature-restore-failed":
+    case "app-changed":
+    case "error":
+      return fmt.label.warn("needs attention; see note below");
+    default:
+      return desktopRestore?.changed ? fmt.label.ok("restored") : fmt.label.dim("not active");
+  }
+}
+
+function renderRestoreReport(fmt, { result, desktopRestore, stopped, purgeResult, logout }) {
+  const configChanged = Boolean(result?.changed);
+  const desktopChanged = Boolean(desktopRestore?.changed);
+  const anyChanged = configChanged || desktopChanged || logout || purgeResult?.purged;
+  const kv = (key, value) => `${key.padEnd(8)} ${value}`;
+  const blocks = [
+    fmt.title(anyChanged ? "Codex DeepSeek Bridge  -  restore complete" : "Codex DeepSeek Bridge  -  nothing to restore"),
+    fmt.section("Codex", [
+      kv("Config", configChanged ? fmt.label.ok("previous config restored") : fmt.label.dim("no bridge config found")),
+      kv("Desktop", desktopRestoreLine(desktopRestore, fmt)),
+      kv("Login", logout ? fmt.label.ok("API-key login removed") : "left unchanged"),
+    ]),
+    fmt.section("Bridge", [
+      kv("Process", stopped?.stopped ? fmt.label.ok("stopped") : fmt.label.dim(stopped?.reason || "not running")),
+      kv("Key", logout || purgeResult?.purged ? fmt.label.ok("removed") : "kept for future setup runs"),
+      kv("Data", purgeResult?.purged ? fmt.label.ok("removed logs, backups, and bridge state") : "logs, backups, and report data kept"),
+    ]),
+  ];
+
+  const attention = restoreAttentionLine(desktopRestore, purgeResult);
+  if (attention) {
+    blocks.push(fmt.section("Note", [fmt.label.warn(attention)]));
+  }
+
+  blocks.push(fmt.section("Next steps", anyChanged
+    ? ["1. Restart Codex", "2. Open Codex with your previous configuration"]
+    : ["No restart needed unless Codex was already open."]));
+
+  return blocks.filter(Boolean).join("\n\n");
+}
+
+async function cmdRestore(args, env, config) {
   const bridgeHome = defaultBridgeHome(env);
-  const stopped = stopDaemon(config.pidFile);
+  const stopped = await stopBridgeDaemons(config.pidFile);
   const result = restoreCodexConfig({ env, backupPath: args["from-backup"] || args.backup || "" });
   let desktopRestore;
   try {
@@ -852,44 +925,22 @@ function cmdRestore(args, env, config) {
   }
   const shouldPurge = args.purge === true;
   const purgeResult = purgeBridgeHomeAfterRestore(bridgeHome, shouldPurge, desktopRestore);
+  const fmt = createFormatter({ stream: process.stdout, env });
 
   if (args.logout === true) {
     codexLogout();
     removeStoredKey(bridgeHome);
-    const message = desktopRestore.changed
-      ? "Restored your previous Codex config and Desktop picker, then removed the API-key login plus stored DeepSeek key. Restart Codex."
-      : "Restored your previous Codex config and removed the API-key login plus stored DeepSeek key. Restart Codex.";
-    printRestoreMessage(message, stopped, purgeResult, desktopRestore);
+    out(renderRestoreReport(fmt, { result, desktopRestore, stopped, purgeResult, logout: true }));
     return 0;
   }
-  if (!result.changed && !desktopRestore.changed) {
-    printRestoreMessage("No bridge config found. Nothing to restore.", stopped, purgeResult, desktopRestore);
-    return 0;
-  }
-  if (desktopRestore.status === "signature-repaired") {
-    const message = result.changed
-      ? "Restored your previous Codex config and repaired the Codex Desktop app signature. Restart Codex to apply."
-      : "Repaired the Codex Desktop app signature. Restart Codex to apply.";
-    printRestoreMessage(message, stopped, purgeResult, desktopRestore);
-  } else if (desktopRestore.status === "signature-restore-failed") {
-    const message = result.changed
-      ? "Restored your previous Codex config, but Codex Desktop still needs official signature recovery. Restart Codex after reinstalling or updating it."
-      : "Codex Desktop still needs official signature recovery. Restart Codex after reinstalling or updating it.";
-    printRestoreMessage(message, stopped, purgeResult, desktopRestore);
-  } else if (desktopRestore.changed && result.changed) {
-    printRestoreMessage("Restored your previous Codex config and Desktop picker. Restart Codex to apply.", stopped, purgeResult, desktopRestore);
-  } else if (desktopRestore.changed) {
-    printRestoreMessage("Restored the Codex Desktop picker. Restart Codex to apply.", stopped, purgeResult, desktopRestore);
-  } else {
-    printRestoreMessage("Restored your previous Codex config. Restart Codex to apply.", stopped, purgeResult, desktopRestore);
-  }
+  out(renderRestoreReport(fmt, { result, desktopRestore, stopped, purgeResult, logout: false }));
   return 0;
 }
 
 // ---- upgrade ----------------------------------------------------------------
 
-function restartBridge(config, port, env) {
-  stopDaemon(config.pidFile);
+async function restartBridge(config, port, env) {
+  await stopBridgeDaemons(config.pidFile);
   launchDaemon(config, port, env);
 }
 
@@ -1000,7 +1051,7 @@ async function cmdUpgrade(args, env, config) {
     bridgeVersion: latest,
     adaptLogin: false,
   });
-  restartBridge(config, reconcile.port, env);
+  await restartBridge(config, reconcile.port, env);
 
   if (reconcile.catalogChanged || desktopPatch.status === "patched") {
     out(`Upgraded to ${latest}. Bridge restarted. Restart Codex to pick up the model catalog and picker state.`);
@@ -1038,9 +1089,9 @@ async function cmdStatus(env, config) {
   return running ? 0 : 1;
 }
 
-function cmdStop(config) {
-  const result = stopDaemon(config.pidFile);
-  out(result.stopped ? `Stopped the bridge (pid ${result.pid}).` : result.reason);
+async function cmdStop(config) {
+  const result = await stopBridgeDaemons(config.pidFile);
+  out(result.stopped ? `Stopped the bridge (${result.pids.join(", ")}).` : result.reason);
   return 0;
 }
 

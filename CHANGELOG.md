@@ -5,6 +5,28 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.20
+
+Fixes MCP/plugin execution in Codex and makes setup harder to run against an old background bridge.
+
+### Fixed
+
+- Namespace MCP and plugin tools are sent to DeepSeek with unique safe names, repaired when DeepSeek
+  returns a close-but-wrong name, then returned to Codex with the leaf tool name Codex expects. This
+  avoids `unsupported call` failures such as returning `mcp__computer_use__list_apps` where Codex
+  expects `list_apps`.
+- `setup`, `restore`, `upgrade`, and `stop` now stop stale bridge `serve` processes even when the pid
+  file is missing or points at an older run.
+
+### Changed
+
+- `setup` now explains an available update in the same structured style as the setup summary, then
+  asks whether to upgrade first and continue setup.
+- Config-only setup output now tells users to pick `Custom`, which routes to `deepseek-pro`; the
+  named `deepseek-pro` / `deepseek-flash` picker entries are only promised after the Desktop patch.
+- `restore` now prints a structured summary showing Codex config, Desktop patch, login, bridge
+  process, key, and retained report data.
+
 ## 0.1.19
 
 Makes future setup runs notice new releases before changing Codex.

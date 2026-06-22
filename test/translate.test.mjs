@@ -29,7 +29,7 @@ test("wraps Codex custom freeform tools as function tools", () => {
   assert.deepEqual(registry.chatTools[0].function.parameters.required, ["input"]);
 });
 
-test("preserves namespace separators for MCP and plugin tools", () => {
+test("uses safe upstream names but returns Codex namespace calls as leaf names", () => {
   const registry = buildToolRegistry([
     {
       type: "namespace",
@@ -57,7 +57,7 @@ test("preserves namespace separators for MCP and plugin tools", () => {
     registry,
   );
   assert.equal(items[1].type, "function_call");
-  assert.equal(items[1].name, "mcp__node_repl__js");
+  assert.equal(items[1].name, "js");
 });
 
 test("repairs uniquely mangled namespace tool names returned by DeepSeek", () => {
@@ -93,12 +93,12 @@ test("repairs uniquely mangled namespace tool names returned by DeepSeek", () =>
     registry,
   );
 
-  assert.equal(items[1].name, "mcp__node_repl__js");
-  assert.equal(items[2].name, "mcp__computer_use__list_apps");
-  assert.equal(items[3].name, "mcp__openaiDeveloperDocs__list_openai_docs");
-  assert.equal(items[4].name, "mcp__computer_use__list_apps");
-  assert.equal(items[5].name, "mcp__computer_use__list_apps");
-  assert.equal(items[6].name, "mcp__computer_use__list_apps");
+  assert.equal(items[1].name, "js");
+  assert.equal(items[2].name, "list_apps");
+  assert.equal(items[3].name, "list_openai_docs");
+  assert.equal(items[4].name, "list_apps");
+  assert.equal(items[5].name, "list_apps");
+  assert.equal(items[6].name, "list_apps");
 });
 
 test("does not repair ambiguous or too-short namespace tool names", () => {
@@ -297,6 +297,29 @@ test("restores prior tool calls and reasoning from Responses input", () => {
   assert.equal(messages[0].tool_calls[0].function.name, "run");
   assert.equal(messages[1].role, "tool");
   assert.equal(messages[2].role, "user");
+});
+
+test("restores namespace leaf tool calls to their safe upstream names", () => {
+  const registry = buildToolRegistry([
+    {
+      type: "namespace",
+      name: "mcp__computer_use",
+      tools: [{ type: "function", name: "list_apps", parameters: { type: "object", properties: {} } }],
+    },
+  ]);
+  const messages = buildChatMessages(
+    {
+      input: [
+        { type: "function_call", call_id: "call_1", name: "list_apps", arguments: "{}" },
+        { type: "function_call_output", call_id: "call_1", output: "Calculator" },
+      ],
+    },
+    registry,
+    { enableVision: false },
+  );
+
+  assert.equal(messages[0].tool_calls[0].function.name, "mcp__computer_use__list_apps");
+  assert.equal(messages[1].tool_call_id, "call_1");
 });
 
 test("maps DeepSeek cache usage fields", () => {

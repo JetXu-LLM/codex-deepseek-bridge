@@ -129,9 +129,11 @@ export function buildToolRegistry(responseTools = []) {
   const chatTools = [];
 
   const addTool = (originalName, tool, options = {}) => {
+    const codexName = options.codexName || originalName;
     const safeName = sanitizeToolName(originalName, usedNames);
-    originalToSafe.set(originalName, safeName);
-    safeToOriginal.set(safeName, originalName);
+    rememberUnique(originalToSafe, originalName, safeName);
+    rememberUnique(originalToSafe, codexName, safeName);
+    safeToOriginal.set(safeName, codexName);
     const addNormalizedAlias = (name) => rememberUnique(normalizedToSafe, normalizedToolName(name), safeName);
     addNormalizedAlias(safeName);
     addNormalizedAlias(originalName);
@@ -206,11 +208,15 @@ export function buildToolRegistry(responseTools = []) {
         if (nested?.type !== "function" || !nested.name) {
           continue;
         }
-        addTool(namespaceToolName(tool.name, nested.name), {
-          description: [tool.description, nested.description].filter(Boolean).join("\n\n"),
-          parameters: nested.parameters,
-          strict: nested.strict,
-        });
+        addTool(
+          namespaceToolName(tool.name, nested.name),
+          {
+            description: [tool.description, nested.description].filter(Boolean).join("\n\n"),
+            parameters: nested.parameters,
+            strict: nested.strict,
+          },
+          { codexName: nested.name },
+        );
       }
     }
   }
