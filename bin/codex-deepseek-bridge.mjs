@@ -882,6 +882,7 @@ async function cmdDoctor(args, env, config) {
   const bridgeHome = defaultBridgeHome(env);
   const state = readInstallState(bridgeHome);
   const port = resolvedPort(args, state, config);
+  const report = reportUrl(config, port);
   const inspect = inspectCodexInstall({ env });
   const keyState = inspect.keyStored || env.DEEPSEEK_API_KEY ? "stored" : "missing";
   const configState = inspect.managedBlockPresent ? "DeepSeek active" : "not configured";
@@ -903,7 +904,8 @@ async function cmdDoctor(args, env, config) {
 
   if (!healthOk) {
     out("Bridge: offline. Start it with: codex-deepseek-bridge start");
-    out(`Codex config: ${configState}. Codex login: ${login}. Desktop compatibility patch: ${doctorDesktopPatchText(desktopPatch)}.`);
+    out(`DeepSeek key: ${keyState}. Codex config: ${configState}. Codex login: ${login}. Desktop compatibility patch: ${doctorDesktopPatchText(desktopPatch)}.`);
+    out(`Report: ${report} (available after the bridge starts).`);
     const signatureLine = doctorSignatureLine(desktopPatch);
     if (signatureLine) {
       out(signatureLine);
@@ -930,19 +932,22 @@ async function cmdDoctor(args, env, config) {
     }
     if (response.status === 200) {
       out("Live DeepSeek call: ok. Model: deepseek-pro. Reply received.");
+      out(`Report: ${report}`);
       await appendUpdateLine(liveVersion, env, bridgeHome);
       return 0;
     }
     if (response.status === 401) {
       out("Live DeepSeek call failed: the DeepSeek key was rejected. Check your key.");
+      out(`Report: ${report}`);
       return 1;
     }
-    out(`Live DeepSeek call failed: DeepSeek returned ${response.status}. See the report for details.`);
+    out(`Live DeepSeek call failed: DeepSeek returned ${response.status}. See ${report} for details.`);
     return 1;
   }
 
+  out(`Bridge: ok on http://${displayHost(config)}:${port}. Report: ${report}.`);
   out(
-    `Bridge: ok. DeepSeek key: ${keyState}. Codex config: ${configState}. Codex login: ${login}. Desktop compatibility patch: ${doctorDesktopPatchText(desktopPatch)}.`,
+    `DeepSeek key: ${keyState}. Codex config: ${configState}. Codex login: ${login}. Desktop compatibility patch: ${doctorDesktopPatchText(desktopPatch)}.`,
   );
   const signatureLine = doctorSignatureLine(desktopPatch);
   if (signatureLine) {

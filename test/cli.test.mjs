@@ -104,6 +104,37 @@ test("setup --from-stdin --no-start writes the managed block, catalog, and key",
   assert.doesNotMatch(result.stderr || "", /deepseek-cli-key/);
 });
 
+test("doctor reports offline diagnostics and the local report URL", () => {
+  const root = tempRoot();
+  const codexHome = path.join(root, "codex");
+  const bridgeHome = path.join(root, "bridge");
+  const env = {
+    ...process.env,
+    CODEX_HOME: codexHome,
+    DSCB_HOME: bridgeHome,
+    DSCB_DESKTOP_PATCH: "off",
+    DSCB_UPDATE_CHECK: "off",
+    PATH: "",
+  };
+
+  const setup = spawnSync(process.execPath, [bin, "setup", "--from-stdin", "--no-start"], {
+    encoding: "utf8",
+    input: "deepseek-cli-key\n",
+    env,
+  });
+  assert.equal(setup.status, 0);
+
+  const result = spawnSync(process.execPath, [bin, "doctor"], { encoding: "utf8", env });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /Bridge: offline\. Start it with: codex-deepseek-bridge start/);
+  assert.match(result.stdout, /DeepSeek key: stored\. Codex config: DeepSeek active\./);
+  assert.match(result.stdout, /Desktop compatibility patch: disabled\./);
+  assert.match(result.stdout, /Report: http:\/\/localhost:8787\/report \(available after the bridge starts\)\./);
+  assert.doesNotMatch(result.stdout, /deepseek-cli-key/);
+  assert.doesNotMatch(result.stderr || "", /deepseek-cli-key/);
+});
+
 test("plain setup does not patch a patchable Desktop ASAR", () => {
   const root = tempRoot();
   const codexHome = path.join(root, "codex");

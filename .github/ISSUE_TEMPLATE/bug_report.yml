@@ -7,7 +7,27 @@ body:
     attributes:
       value: |
         Thanks for reporting a bug. Do not paste API keys, bearer tokens, full prompt payloads, or private logs.
-        Before opening an issue, please run `codex-deepseek-bridge doctor`. If you are comfortable making one real DeepSeek call, also run `codex-deepseek-bridge doctor --live`.
+        Before opening an issue, please run:
+
+        ```text
+        codex-deepseek-bridge version
+        codex-deepseek-bridge doctor
+        codex-deepseek-bridge doctor --live
+        ```
+
+        `doctor --live` makes one real DeepSeek call, so skip it if you do not want that. After reproducing the problem, open the local report with `codex-deepseek-bridge report` or `http://localhost:8787/report` (use the port shown by `doctor` if different).
+  - type: textarea
+    id: health-check
+    attributes:
+      label: Health check
+      description: Paste the redacted output of the commands above. Include `doctor --live` only if you ran it.
+      placeholder: |
+        codex-deepseek-bridge version
+        codex-deepseek-bridge doctor
+        codex-deepseek-bridge doctor --live
+      render: text
+    validations:
+      required: true
   - type: textarea
     id: summary
     attributes:
@@ -24,25 +44,6 @@ body:
         1. Run ...
         2. Open ...
         3. See ...
-    validations:
-      required: true
-  - type: input
-    id: bridge-version
-    attributes:
-      label: Bridge version
-      placeholder: "codex-deepseek-bridge version"
-    validations:
-      required: true
-  - type: textarea
-    id: health-check
-    attributes:
-      label: Health check
-      description: Paste the redacted output of the commands below. Include `doctor --live` only if you ran it.
-      placeholder: |
-        codex-deepseek-bridge version
-        codex-deepseek-bridge doctor
-        codex-deepseek-bridge doctor --live
-      render: text
     validations:
       required: true
   - type: input
@@ -63,6 +64,6 @@ body:
   - type: textarea
     id: logs
     attributes:
-      label: Redacted logs
-      description: Paste only redacted metadata or error output. Do not include prompt text unless it is synthetic.
+      label: Report details or redacted logs
+      description: Paste redacted error status or call metadata from the local report. Do not include API keys, bearer tokens, full prompt payloads, or private logs.
       render: text
