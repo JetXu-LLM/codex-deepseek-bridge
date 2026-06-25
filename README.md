@@ -82,6 +82,13 @@ which models are published, and any action you still need to take — then you r
 If Codex Desktop is not installed yet, `setup` can install the official app first and continue.
 If a newer bridge release is available, `setup` asks before upgrading and keeps your stored key, logs, and report data.
 
+Setup saves the Codex config, but Codex can use DeepSeek only while the local bridge process is
+running. If you restart your computer or Codex can no longer reach DeepSeek, run `start` with the
+same command style you used for setup, for example `codex-deepseek-bridge start`,
+`./codex-deepseek-bridge-macos-arm64 start`, or `.\codex-deepseek-bridge-win-x64.exe start`.
+You usually do not need `setup` again unless you want to reconfigure the bridge or change your
+DeepSeek key.
+
 By default this keeps Codex on `deepseek-pro`. The composer shows `Custom` next to your reasoning
 effort (the screenshot up top is `deepseek-pro` running at max thinking) because current Codex Desktop
 builds do not render custom model names yet. Want both models with their real labels? See
@@ -218,6 +225,7 @@ provider id, so `restore` is the reliable way to return to the exact previous se
 codex-deepseek-bridge doctor        # is the bridge healthy and configured?
 codex-deepseek-bridge doctor --live # make one real DeepSeek call, end to end
 codex-deepseek-bridge report        # open the local report
+codex-deepseek-bridge start         # start the local bridge again if needed
 codex-deepseek-bridge restore       # put Codex back the way it was
 ```
 

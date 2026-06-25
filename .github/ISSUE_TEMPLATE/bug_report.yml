@@ -7,6 +7,7 @@ body:
     attributes:
       value: |
         Thanks for reporting a bug. Do not paste API keys, bearer tokens, full prompt payloads, or private logs.
+        Before opening an issue, please run `codex-deepseek-bridge doctor`. If you are comfortable making one real DeepSeek call, also run `codex-deepseek-bridge doctor --live`.
   - type: textarea
     id: summary
     attributes:
@@ -29,7 +30,21 @@ body:
     id: bridge-version
     attributes:
       label: Bridge version
-      placeholder: "0.1.0"
+      placeholder: "codex-deepseek-bridge version"
+    validations:
+      required: true
+  - type: textarea
+    id: health-check
+    attributes:
+      label: Health check
+      description: Paste the redacted output of the commands below. Include `doctor --live` only if you ran it.
+      placeholder: |
+        codex-deepseek-bridge version
+        codex-deepseek-bridge doctor
+        codex-deepseek-bridge doctor --live
+      render: text
+    validations:
+      required: true
   - type: input
     id: codex-version
     attributes:
