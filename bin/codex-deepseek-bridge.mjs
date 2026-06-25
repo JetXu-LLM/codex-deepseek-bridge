@@ -37,6 +37,7 @@ import {
   waitForCodexDesktop,
 } from "../src/codex-app.mjs";
 import { createFormatter } from "../src/cli-format.mjs";
+import { deepSeekKeyValidationMessage, validateDeepSeekKey } from "../src/key.mjs";
 
 const REPO_URL = "https://github.com/JetXu-LLM/codex-deepseek-bridge";
 
@@ -79,15 +80,22 @@ function readStdin() {
   });
 }
 
+function maskKeyEcho(chunk) {
+  const text = String(chunk || "");
+  return [...text].map((char) => (/[\r\n]/.test(char) ? char : "*")).join("");
+}
+
 // Prompt once on a TTY without echoing the typed key.
 function promptForKey() {
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    const prompt = "Paste your DeepSeek API key (it will not be echoed): ";
+    const prompt = "Paste your DeepSeek API key (hidden; paste will show as *): ";
     let muted = false;
     rl._writeToOutput = (chunk) => {
       if (!muted) {
         rl.output.write(chunk);
+      } else {
+        rl.output.write(maskKeyEcho(chunk));
       }
     };
     rl.question(prompt, (answer) => {
@@ -97,6 +105,21 @@ function promptForKey() {
     });
     muted = true;
   });
+}
+
+async function promptForValidKey() {
+  for (;;) {
+    const key = await promptForKey();
+    const validation = validateDeepSeekKey(key);
+    if (validation.ok) {
+      out(`DeepSeek API key received (${validation.key.length} characters).`);
+      return validation.key;
+    }
+    if (validation.reason === "missing") {
+      return "";
+    }
+    out(deepSeekKeyValidationMessage(validation));
+  }
 }
 
 // Resolve the DeepSeek key from --from-stdin, then DEEPSEEK_API_KEY, then a TTY
@@ -109,7 +132,7 @@ async function resolveKey(args, env) {
     return String(env.DEEPSEEK_API_KEY).trim();
   }
   if (process.stdin.isTTY) {
-    return (await promptForKey()).trim();
+    return promptForValidKey();
   }
   return "";
 }
@@ -249,9 +272,6 @@ function catalogIncludesFlash(stateOrResult) {
 // Concise, prefix-free history status for the setup summary section.
 function historyStatusLine(result) {
   if (result?.historyPreserved) {
-    if (result.providerMode === "openai_base_url") {
-      return "local history stays visible through the official openai_base_url path";
-    }
     return `provider ${result.providerId} history stays visible; other provider chats return after restore`;
   }
   return "existing chats are unchanged and return after restore; some chats under another provider may be hidden while DeepSeek is active";
@@ -729,6 +749,13 @@ function doctorSignatureLine(result) {
   return "";
 }
 
+function doctorCompatibilityLine(inspect) {
+  if (inspect.state?.providerMode === "openai_base_url") {
+    return "Compatibility note: this machine is using an older openai_base_url setup. Run codex-deepseek-bridge setup to rewrite the bridge provider.";
+  }
+  return "";
+}
+
 async function maybePatchCodexDesktop(args, env, bridgeHome) {
   if (args["no-desktop-patch"] === true || env.DSCB_DESKTOP_PATCH === "off") {
     return { status: "disabled" };
@@ -768,6 +795,14 @@ async function cmdSetup(args, env, config, rawArgs = []) {
   const hasStoredKey = inspectCodexInstall({ env, bridgeHome }).keyStored;
   const explicitKeySource = args["from-stdin"] === true || Boolean(env.DEEPSEEK_API_KEY);
   const key = explicitKeySource || !hasStoredKey ? await resolveKey(args, env) : "";
+  if (key) {
+    const validation = validateDeepSeekKey(key);
+    if (!validation.ok) {
+      out(deepSeekKeyValidationMessage(validation));
+      out("Paste the DeepSeek API key again, or set DEEPSEEK_API_KEY to the exact key from DeepSeek.");
+      return 1;
+    }
+  }
   if (!key) {
     if (!hasStoredKey) {
       out("No DeepSeek API key was provided.");
@@ -836,18 +871,20 @@ async function cmdStart(args, env, config) {
 
   const preferredPort = Number(args.port || state?.port || 8787);
   const port = await findAvailablePort(preferredPort, config.host);
-  if (state && port !== state.port) {
-    // Reconcile the config to the port we will actually bind (preserve key/login).
-      configureCodex({
-        env,
-        apiKey: "",
-        host: config.host,
-        port,
-        vision: config.enableVision,
-        includeFlash: catalogIncludesFlash(state),
-        installMethod: state.installMethod || detectInstallMethod(),
-        bridgeVersion: bridgeVersion(),
-        adaptLogin: false,
+  const needsConfigReconcile = state && (port !== state.port || state.providerMode === "openai_base_url");
+  if (needsConfigReconcile) {
+    // Reconcile the config to the port/provider mode we will actually use
+    // (preserve key/login).
+    configureCodex({
+      env,
+      apiKey: "",
+      host: config.host,
+      port,
+      vision: config.enableVision,
+      includeFlash: catalogIncludesFlash(state),
+      installMethod: state.installMethod || detectInstallMethod(),
+      bridgeVersion: bridgeVersion(),
+      adaptLogin: false,
     });
   }
   launchDaemon(config, port, env);
@@ -910,6 +947,10 @@ async function cmdDoctor(args, env, config) {
     if (signatureLine) {
       out(signatureLine);
     }
+    const compatibilityLine = doctorCompatibilityLine(inspect);
+    if (compatibilityLine) {
+      out(compatibilityLine);
+    }
     return 1;
   }
 
@@ -952,6 +993,10 @@ async function cmdDoctor(args, env, config) {
   const signatureLine = doctorSignatureLine(desktopPatch);
   if (signatureLine) {
     out(signatureLine);
+  }
+  const compatibilityLine = doctorCompatibilityLine(inspect);
+  if (compatibilityLine) {
+    out(compatibilityLine);
   }
   if (login === "api-key") {
     out(

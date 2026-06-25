@@ -3,7 +3,6 @@ import { catalogModels, DEFAULT_CODEX_MODEL } from "./models.mjs";
 export const BRIDGE_PROVIDER_ID = "deepseek_bridge";
 export const OPENAI_PROVIDER_ID = "openai";
 export const PROVIDER_MODE_CUSTOM = "custom";
-export const PROVIDER_MODE_OPENAI_BASE_URL = "openai_base_url";
 export const BRIDGE_PROVIDER_NAME = "DeepSeek (via Codex DeepSeek Bridge)";
 
 export const MANAGED_BLOCK_START = "# >>> codex-deepseek-bridge";
@@ -24,7 +23,6 @@ function tomlString(value) {
 export function buildManagedConfigBlock({
   model = DEFAULT_CODEX_MODEL,
   provider = BRIDGE_PROVIDER_ID,
-  providerMode = PROVIDER_MODE_CUSTOM,
   baseUrl = "http://127.0.0.1:8787/v1",
   catalogPath,
   reasoningEffort = "xhigh",
@@ -37,19 +35,14 @@ export function buildManagedConfigBlock({
     `model_provider = ${tomlString(provider)}`,
     `model_catalog_json = ${tomlString(catalogPath)}`,
     `model_reasoning_effort = ${tomlString(reasoningEffort)}`,
+    "",
+    `[model_providers.${provider}]`,
+    `name = ${tomlString(BRIDGE_PROVIDER_NAME)}`,
+    `base_url = ${tomlString(baseUrl)}`,
+    'wire_api = "responses"',
+    "supports_websockets = false",
+    `requires_openai_auth = ${requiresOpenAiAuth ? "true" : "false"}`,
   ];
-  if (providerMode === PROVIDER_MODE_OPENAI_BASE_URL) {
-    lines.push(`openai_base_url = ${tomlString(baseUrl)}`);
-  } else {
-    lines.push(
-      "",
-      `[model_providers.${provider}]`,
-      `name = ${tomlString(BRIDGE_PROVIDER_NAME)}`,
-      `base_url = ${tomlString(baseUrl)}`,
-      'wire_api = "responses"',
-      `requires_openai_auth = ${requiresOpenAiAuth ? "true" : "false"}`,
-    );
-  }
   lines.push(MANAGED_BLOCK_END, "");
   return lines.join("\n");
 }

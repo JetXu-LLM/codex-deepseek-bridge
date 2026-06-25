@@ -191,6 +191,34 @@ test("setup with no key gives guidance and makes no changes", () => {
   assert.equal(fs.existsSync(path.join(codexHome, "config.toml")), false);
 });
 
+test("setup rejects malformed key input without writing config or echoing it", () => {
+  const root = tempRoot();
+  const codexHome = path.join(root, "codex");
+  const bridgeHome = path.join(root, "bridge");
+  const badKey = "sk-test bad";
+
+  const result = spawnSync(process.execPath, [bin, "setup", "--from-stdin", "--no-start"], {
+    encoding: "utf8",
+    input: `${badKey}\n`,
+    env: {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      DSCB_HOME: bridgeHome,
+      DSCB_DESKTOP_PATCH: "off",
+      DSCB_UPDATE_CHECK: "off",
+      DEEPSEEK_API_KEY: "",
+      PATH: "",
+    },
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /That does not look like a DeepSeek API key\./);
+  assert.doesNotMatch(result.stdout, /sk-test bad/);
+  assert.doesNotMatch(result.stderr || "", /sk-test bad/);
+  assert.equal(fs.existsSync(path.join(codexHome, "config.toml")), false);
+  assert.equal(fs.existsSync(path.join(bridgeHome, "deepseek-key")), false);
+});
+
 test("setup reuses an existing stored key after a normal restore", () => {
   const root = tempRoot();
   const codexHome = path.join(root, "codex");

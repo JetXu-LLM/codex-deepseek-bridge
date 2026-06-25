@@ -48,6 +48,7 @@ test("configureCodex writes one managed block and the two-model catalog", () => 
   assert.match(config, /^model_provider = "deepseek_bridge"$/m);
   assert.match(config, /^model_reasoning_effort = "xhigh"$/m);
   assert.match(config, /\[model_providers\.deepseek_bridge\]/);
+  assert.match(config, /^supports_websockets = false$/m);
   assert.match(config, /^requires_openai_auth = false$/m);
   // No legacy named-profile file is created.
   assert.equal(fs.existsSync(path.join(codexHome, "deepseek.config.toml")), false);
@@ -97,9 +98,8 @@ test("backs up an existing config and restore returns the original", () => {
   assert.equal(fs.readFileSync(result.backupPath, "utf8"), original);
 
   const written = fs.readFileSync(result.configPath, "utf8");
-  assert.ok(written.indexOf("# >>> codex-deepseek-bridge") < written.indexOf("[model_providers.openai]"));
   assert.doesNotMatch(written, /^model = "gpt-5.5"$/m);
-  assert.match(written, /\[model_providers\.openai\]/);
+  assert.doesNotMatch(written, /^\[model_providers\.openai\]$/m);
 
   const restore = restoreCodexConfig({ codexHome, bridgeHome });
   assert.equal(restore.changed, true);
@@ -287,12 +287,15 @@ test("does not reparent user root keys under the managed provider table", () => 
   assert.ok(sandboxLine !== -1 && sandboxLine < firstTableLine, "root keys must precede the first table");
 });
 
-test("uses openai_base_url for the reserved OpenAI provider instead of overriding it", () => {
+test("uses an independent provider for the reserved OpenAI provider", () => {
   const root = tempRoot();
   const codexHome = path.join(root, "codex");
   const bridgeHome = path.join(root, "bridge");
   fs.mkdirSync(codexHome, { recursive: true });
-  fs.writeFileSync(path.join(codexHome, "config.toml"), 'model_provider = "openai"\nopenai_base_url = "https://proxy.example/v1"\n');
+  fs.writeFileSync(
+    path.join(codexHome, "config.toml"),
+    'model_provider = "openai"\nopenai_base_url = "https://proxy.example/v1"\n\n[model_providers.openai]\nname = "openai"\n',
+  );
 
   const result = configureCodex({
     codexHome,
@@ -304,11 +307,14 @@ test("uses openai_base_url for the reserved OpenAI provider instead of overridin
   });
   const config = fs.readFileSync(result.configPath, "utf8");
 
-  assert.match(config, /^model_provider = "openai"$/m);
-  assert.match(config, /^openai_base_url = "http:\/\/127\.0\.0\.1:8787\/v1"$/m);
+  assert.match(config, /^model_provider = "deepseek_bridge"$/m);
+  assert.match(config, /^\[model_providers\.deepseek_bridge\]$/m);
+  assert.match(config, /^supports_websockets = false$/m);
+  assert.doesNotMatch(config, /^openai_base_url = /m);
   assert.doesNotMatch(config, /^\[model_providers\.openai\]$/m);
-  assert.equal(result.providerMode, "openai_base_url");
-  assert.equal(result.historyPreserved, true);
+  assert.equal(result.providerMode, "custom");
+  assert.equal(result.providerSource, "reserved-openai");
+  assert.equal(result.historyPreserved, false);
 });
 
 test("falls back to an independent provider for reserved non-OpenAI providers", () => {

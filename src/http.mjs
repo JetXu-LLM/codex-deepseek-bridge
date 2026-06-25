@@ -1,3 +1,11 @@
+import * as zlib from "node:zlib";
+import { promisify } from "node:util";
+
+const gunzip = promisify(zlib.gunzip);
+const inflate = promisify(zlib.inflate);
+const brotliDecompress = promisify(zlib.brotliDecompress);
+const zstdDecompress = typeof zlib.zstdDecompress === "function" ? promisify(zlib.zstdDecompress) : null;
+
 export function sendJson(res, statusCode, value) {
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
@@ -34,7 +42,8 @@ export function readRequestBody(req) {
 }
 
 export async function readJsonBody(req) {
-  const body = await readRequestBody(req);
+  const rawBody = await readRequestBody(req);
+  const body = await decodeRequestBody(rawBody, req.headers);
   if (!body.length) {
     return {};
   }
@@ -46,6 +55,37 @@ export async function readJsonBody(req) {
     next.statusCode = 400;
     throw next;
   }
+}
+
+async function decodeRequestBody(body, headers = {}) {
+  const encoding = String(headers["content-encoding"] || headers["Content-Encoding"] || "identity").trim().toLowerCase();
+  if (!body.length || !encoding || encoding === "identity") {
+    return body;
+  }
+  try {
+    if (encoding === "gzip" || encoding === "x-gzip") {
+      return await gunzip(body);
+    }
+    if (encoding === "deflate") {
+      return await inflate(body);
+    }
+    if (encoding === "br") {
+      return await brotliDecompress(body);
+    }
+    if (encoding === "zstd" && zstdDecompress) {
+      return await zstdDecompress(body);
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const next = new Error(`invalid ${encoding} request body: ${detail}`);
+    next.statusCode = 400;
+    throw next;
+  }
+  const next = new Error(
+    `unsupported request content-encoding: ${encoding}. Disable request compression in Codex or run setup again so the bridge uses its HTTP-only provider.`,
+  );
+  next.statusCode = 415;
+  throw next;
 }
 
 export function extractBearer(headers) {

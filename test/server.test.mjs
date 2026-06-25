@@ -2,6 +2,7 @@ import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import * as zlib from "node:zlib";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildRuntimeConfig } from "../src/config.mjs";
@@ -134,6 +135,66 @@ test("uses Codex bearer token as DeepSeek key when process key is absent", async
   assert.equal(response.status, 200);
   assert.equal(upstreamAuth, "Bearer test-deepseek-key");
   assert.equal(json.output_text, "bearer-ok");
+});
+
+test("accepts compressed JSON request bodies", async (t) => {
+  let upstreamBody;
+  const mock = await startMockDeepSeek(async (req, res) => {
+    upstreamBody = JSON.parse(await readBody(req));
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      choices: [{ message: { content: "gzip-ok" } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }));
+  });
+  t.after(() => mock.server.close());
+
+  const config = buildRuntimeConfig({}, {
+    host: "127.0.0.1",
+    port: 0,
+    deepseekBaseUrl: mock.baseUrl,
+    apiKey: "test-key",
+    logDir: "",
+    quiet: true,
+  });
+  const bridge = await startServer(config);
+  t.after(() => bridge.close());
+  const port = bridge.address().port;
+  const body = zlib.gzipSync(Buffer.from(JSON.stringify({ model: "deepseek-pro", input: "gzip", stream: false })));
+
+  const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "content-encoding": "gzip" },
+    body,
+  });
+  const json = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(upstreamBody.messages[0].content, "gzip");
+  assert.equal(json.output_text, "gzip-ok");
+});
+
+test("reports unsupported request body encodings clearly", async (t) => {
+  const config = buildRuntimeConfig({}, {
+    host: "127.0.0.1",
+    port: 0,
+    apiKey: "test-key",
+    logDir: "",
+    quiet: true,
+  });
+  const bridge = await startServer(config);
+  t.after(() => bridge.close());
+  const port = bridge.address().port;
+
+  const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "content-encoding": "x-zstd" },
+    body: Buffer.from("(not-json", "utf8"),
+  });
+  const json = await response.json();
+
+  assert.equal(response.status, 415);
+  assert.match(json.error.message, /unsupported request content-encoding: x-zstd/);
 });
 
 test("modelList can publish only deepseek-pro when Desktop patch is inactive", () => {

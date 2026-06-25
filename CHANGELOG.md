@@ -5,6 +5,29 @@ All notable changes to this project are documented here.
 This project follows semantic versioning after `1.0.0`. Before `1.0.0`, minor versions may include
 breaking changes.
 
+## 0.1.26
+
+Fixes Codex WebSocket transport errors on machines whose previous setup used the built-in OpenAI
+provider path.
+
+### Fixed
+
+- `setup` now always writes the bridge as a custom HTTP-only provider with
+  `supports_websockets = false`. This avoids Codex's built-in OpenAI provider attempting
+  WebSocket Responses at `ws://127.0.0.1:8787/v1/responses`, which the bridge does not implement.
+- Machines already configured with the older `openai_base_url` bridge path are migrated when
+  `setup` runs again; `start` also reconciles that older state before launching the bridge.
+- Request bodies with supported compression (`gzip`, `deflate`, `br`, and `zstd` on Node versions
+  that expose it) are decoded before JSON parsing. Unsupported encodings now return a clear error
+  instead of an invalid JSON body with binary-looking text.
+
+### Changed
+
+- Interactive setup now masks pasted DeepSeek API keys with `*` and confirms that a key was
+  received without printing the key.
+- DeepSeek key validation now only rejects empty values, spaces, line breaks, control characters,
+  and non-ASCII/full-width characters. It does not enforce an unofficial key prefix or length.
+
 ## 0.1.25
 
 Smooths first-run setup on machines that do not have Codex Desktop installed yet.

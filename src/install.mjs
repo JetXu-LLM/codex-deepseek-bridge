@@ -7,20 +7,20 @@ import {
   MANAGED_BLOCK_START,
   OPENAI_PROVIDER_ID,
   PROVIDER_MODE_CUSTOM,
-  PROVIDER_MODE_OPENAI_BASE_URL,
   buildManagedConfigBlock,
   buildModelCatalog,
 } from "./catalog.mjs";
 import { defaultBridgeHome, defaultCodexHome } from "./config.mjs";
 import { DEFAULT_CODEX_MODEL } from "./models.mjs";
+import { deepSeekKeyValidationMessage, validateDeepSeekKey } from "./key.mjs";
 
 const INSTALL_STATE_FILE = "install-state.json";
 const STORED_KEY_FILE = "deepseek-key";
 export const STATE_SCHEMA_VERSION = 1;
 
-// Root keys the managed block writes. Re-running setup strips these from the
-// user's root region so the managed values win without duplicate-key TOML errors.
-// We strip ONLY what the block sets, to preserve every other user setting.
+// Root keys setup owns while DeepSeek is active. Re-running setup strips these
+// from the user's root region so the managed values win without duplicate-key
+// TOML errors or stale provider redirects. Restore brings the original file back.
 const MANAGED_ROOT_KEYS = new Set([
   "model",
   "model_provider",
@@ -139,10 +139,12 @@ function splitRootAndTables(text) {
 // remaining root keys, then the managed root keys), then the managed provider
 // table, then the user's tables. The managed block must never leave a table
 // open ahead of user root keys, or those keys get reparented under it.
-function placeManagedBlockFirst(existing, block, { provider = BRIDGE_PROVIDER_ID } = {}) {
+function placeManagedBlockFirst(existing, block, { provider = BRIDGE_PROVIDER_ID, extraProviders = [] } = {}) {
   let cleaned = removeManagedRootKeys(removeManagedBlock(existing));
-  if (provider) {
-    cleaned = removeProviderTable(cleaned, provider);
+  for (const id of [provider, ...extraProviders]) {
+    if (id) {
+      cleaned = removeProviderTable(cleaned, id);
+    }
   }
   const { root, tables } = splitRootAndTables(cleaned);
   const rootTrimmed = root.trim();
@@ -258,16 +260,6 @@ export function selectBridgeProviderStrategy({
     };
   }
 
-  if (configProvider === OPENAI_PROVIDER_ID || historyProviderId === OPENAI_PROVIDER_ID) {
-    return {
-      provider: OPENAI_PROVIDER_ID,
-      providerMode: PROVIDER_MODE_OPENAI_BASE_URL,
-      providerSource: configProvider === OPENAI_PROVIDER_ID ? "config-openai-base-url" : "history-openai-base-url",
-      historyProviderId,
-      historyPreserved: historyProviderId === OPENAI_PROVIDER_ID,
-    };
-  }
-
   return {
     provider: BRIDGE_PROVIDER_ID,
     providerMode: PROVIDER_MODE_CUSTOM,
@@ -303,13 +295,13 @@ function applyOwnerOnlyAcl(file) {
 }
 
 export function storeDeepSeekKey(bridgeHome, key) {
-  const trimmed = String(key || "").trim();
-  if (!trimmed) {
+  const validation = validateDeepSeekKey(key);
+  if (!validation.ok) {
     return "";
   }
   ensureDir(bridgeHome);
   const file = storedKeyFilePath(bridgeHome);
-  fs.writeFileSync(file, `${trimmed}\n`, { mode: 0o600 });
+  fs.writeFileSync(file, `${validation.key}\n`, { mode: 0o600 });
   try {
     fs.chmodSync(file, 0o600);
   } catch {
@@ -447,6 +439,10 @@ export function configureCodex({
   const catalogPath = path.join(bridgeHome, "models.json");
   const configPath = path.join(codexHome, "config.toml");
   const baseUrl = `http://${host}:${port}/v1`;
+  const keyValidation = String(apiKey || "").trim() ? validateDeepSeekKey(apiKey) : { ok: true, key: "" };
+  if (!keyValidation.ok) {
+    throw new Error(deepSeekKeyValidationMessage(keyValidation));
+  }
 
   // Catalog is regenerated from code every reconcile (single source of truth).
   const previousCatalog = fs.existsSync(catalogPath) ? fs.readFileSync(catalogPath, "utf8") : "";
@@ -476,13 +472,12 @@ export function configureCodex({
   const block = buildManagedConfigBlock({
     model,
     provider: providerStrategy.provider,
-    providerMode: providerStrategy.providerMode,
     baseUrl,
     catalogPath,
     reasoningEffort,
   });
   const replacedProvider = providerStrategy.providerMode === PROVIDER_MODE_CUSTOM ? providerStrategy.provider : "";
-  fs.writeFileSync(configPath, placeManagedBlockFirst(existing, block, { provider: replacedProvider }));
+  fs.writeFileSync(configPath, placeManagedBlockFirst(existing, block, { provider: replacedProvider, extraProviders: [OPENAI_PROVIDER_ID] }));
 
   // Store the key only when supplied; otherwise keep any existing stored key.
   let keyStored = Boolean(readStoredKey(bridgeHome));
