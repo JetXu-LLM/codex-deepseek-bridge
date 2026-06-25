@@ -7,6 +7,8 @@ body:
     attributes:
       value: |
         Thanks for reporting a bug. Do not paste API keys, bearer tokens, full prompt payloads, or private logs.
+        Please check the FAQ first: https://github.com/JetXu-LLM/codex-deepseek-bridge/blob/main/docs/faq.md
+
         Before opening an issue, please run:
 
         ```text

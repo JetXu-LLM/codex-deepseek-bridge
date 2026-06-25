@@ -104,6 +104,7 @@ model_reasoning_effort = "xhigh"
 name = "DeepSeek (via Codex DeepSeek Bridge)"
 base_url = "http://127.0.0.1:8787/v1"
 wire_api = "responses"
+supports_websockets = false
 requires_openai_auth = false
 # <<< codex-deepseek-bridge
 ```
@@ -116,10 +117,15 @@ the local thread database:
 
 - If the original or dominant history provider is non-reserved, such as `codex`, setup reuses that
   provider id and writes a temporary `[model_providers.<id>]` table pointing at the bridge.
-- If the provider is the reserved built-in `openai`, setup uses the official `openai_base_url`
-  override instead of writing `[model_providers.openai]`.
+- If the provider is the reserved built-in `openai`, setup uses the independent `deepseek_bridge`
+  provider. Codex does not allow the bridge to redefine `[model_providers.openai]`, and the built-in
+  OpenAI provider may choose transports the bridge does not implement.
 - If the provider is another reserved built-in id, or no useful history exists, setup uses the
   independent `deepseek_bridge` provider shown above.
+
+Setups from `0.1.25` or older may have written `openai_base_url` for machines that used the built-in
+OpenAI provider. Current `setup` removes that active override while DeepSeek is enabled and rewrites
+the bridge as a custom HTTP-only provider with `supports_websockets = false`.
 
 `restore` stops the bridge background process and writes the original config back from the setup
 backup, including any prior proxy base URL or provider table.

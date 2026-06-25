@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: FAQ
+    url: https://github.com/JetXu-LLM/codex-deepseek-bridge/blob/main/docs/faq.md
+    about: Check common setup, start, upgrade, picker, API key, report, and restore questions first.
   - name: Security policy
     url: https://github.com/JetXu-LLM/codex-deepseek-bridge/security/policy
     about: Please do not disclose secrets, prompt payloads, or private logs in public issues.

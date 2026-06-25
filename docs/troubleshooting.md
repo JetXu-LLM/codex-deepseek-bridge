@@ -1,5 +1,8 @@
 # Troubleshooting
 
+For common setup, start, upgrade, picker, API key, report, and restore questions, see the
+[FAQ](faq.md).
+
 Start with `doctor`. It checks the bridge, your stored key, the Codex config, and your detected login
 state without printing any secret.
 
@@ -80,6 +83,15 @@ codex-deepseek-bridge doctor --live
 - **DeepSeek returned an error status** → an upstream problem. Open the report for details with
   `codex-deepseek-bridge report`.
 
+## Codex logs mention WebSocket or `GET /v1/responses`
+
+Upgrade to `0.1.26` or newer and re-run `setup`.
+
+The bridge supports HTTP/SSE Responses requests (`POST /v1/responses`). Older setup output could
+route the bridge through Codex's built-in OpenAI provider with `openai_base_url`; that provider may
+try WebSocket transport at `ws://127.0.0.1:8787/v1/responses`. Current setup writes a custom
+HTTP-only provider with `supports_websockets = false` and migrates older `openai_base_url` state.
+
 ## Codex says the model catalog is invalid
 
 Run:
@@ -105,10 +117,12 @@ looks at your original config and local thread database, then preserves history 
 without overriding reserved built-in provider IDs:
 
 - Non-reserved providers, such as `codex`, are reused while their base URL points at the bridge.
-- `openai` uses the official `openai_base_url` override.
-- Other reserved providers and machines with no useful history use the independent
-  `deepseek_bridge` provider. In that case old chats are unchanged but may be hidden while DeepSeek
-  is active; `restore` brings the previous config back.
+- The reserved built-in `openai` provider is not redefined and no longer uses an active
+  `openai_base_url` bridge override. Current setup uses the independent `deepseek_bridge` provider
+  for that case.
+- Other reserved providers and machines with no useful history also use the independent
+  `deepseek_bridge` provider. In those cases old chats are unchanged but may be hidden while
+  DeepSeek is active; `restore` brings the previous config back.
 
 ChatGPT cloud-only history is separate. If `doctor` says `Codex login: api-key`, Codex still has no
 ChatGPT token for cloud history endpoints. To recover ChatGPT-backed cloud history while keeping the

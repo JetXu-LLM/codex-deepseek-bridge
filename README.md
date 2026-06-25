@@ -85,7 +85,7 @@ If a newer bridge release is available, `setup` asks before upgrading and keeps 
 Setup saves the Codex config, but Codex can use DeepSeek only while the local bridge process is
 running. If you restart your computer or Codex can no longer reach DeepSeek, run `start` with the
 same command style you used for setup, for example `codex-deepseek-bridge start`,
-`./codex-deepseek-bridge-macos-arm64 start`, or `.\codex-deepseek-bridge-win-x64.exe start`.
+`./codex-deepseek-bridge-macos start`, or `.\codex-deepseek-bridge-win-x64.exe start`.
 You usually do not need `setup` again unless you want to reconfigure the bridge or change your
 DeepSeek key.
 
@@ -207,15 +207,15 @@ local bridge and then to DeepSeek.
 - ChatGPT login stays ChatGPT.
 - API-key login stays API-key.
 - Existing non-reserved provider history is reused when possible.
-- The reserved `openai` provider uses the official `openai_base_url` override instead of redefining
-  `[model_providers.openai]`.
+- The reserved `openai` provider is not redefined; current setup uses the independent
+  `deepseek_bridge` provider for that case.
 
 ChatGPT cloud history still requires a ChatGPT sign-in. Local history can be scoped by Codex
 provider id, so `restore` is the reliable way to return to the exact previous setup.
 
 | Before setup | While DeepSeek is active | After `restore` |
 | --- | --- | --- |
-| ChatGPT/OpenAI provider | ChatGPT cloud history needs the ChatGPT sign-in; local OpenAI-provider chats may be hidden if setup reused another provider id | Previous ChatGPT/OpenAI setup returns |
+| ChatGPT/OpenAI provider | ChatGPT cloud history needs the ChatGPT sign-in; local OpenAI-provider chats may be hidden while DeepSeek uses its own provider id | Previous ChatGPT/OpenAI setup returns |
 | Existing custom/API-key provider such as `codex` | Setup may reuse that provider id so those local chats stay visible, now routed through DeepSeek | Previous provider config returns |
 | No reusable provider history | DeepSeek uses its own `deepseek_bridge` provider; other provider histories are unchanged but may be hidden | Previous config returns |
 
@@ -258,6 +258,7 @@ codex-deepseek-bridge setup
 
 ## Docs
 
+- [FAQ](docs/faq.md)
 - [Architecture](docs/architecture.md)
 - [Configuration and platforms](docs/platforms-and-upgrades.md)
 - [Cache and the report](docs/cache-and-observability.md)

@@ -202,15 +202,15 @@ sequenceDiagram
 - ChatGPT login 仍然是 ChatGPT。
 - API-key login 仍然是 API-key。
 - 如果已有 non-reserved provider history，会尽量复用。
-- 保留的 `openai` provider 会使用官方 `openai_base_url` override，而不是重新定义
-  `[model_providers.openai]`。
+- reserved `openai` provider 不会被重新定义；当前 setup 在这种情况下会使用独立的
+  `deepseek_bridge` provider。
 
 ChatGPT cloud history 仍然需要 ChatGPT sign-in。Codex 的 local history 可能按 provider id
 分组，所以 `restore` 是回到原设置最可靠的方式。
 
 | setup 前 | DeepSeek 启用期间 | `restore` 后 |
 | --- | --- | --- |
-| ChatGPT/OpenAI provider | ChatGPT cloud history 需要 ChatGPT sign-in；如果 setup 复用了另一个 provider id，本地 OpenAI-provider chats 可能暂时隐藏 | 恢复之前的 ChatGPT/OpenAI 设置 |
+| ChatGPT/OpenAI provider | ChatGPT cloud history 需要 ChatGPT sign-in；DeepSeek 使用自己的 provider id 时，本地 OpenAI-provider chats 可能暂时隐藏 | 恢复之前的 ChatGPT/OpenAI 设置 |
 | 已有 custom/API-key provider，例如 `codex` | setup 可能复用这个 provider id，所以这些 local chats 仍然可见，只是现在路由到 DeepSeek | 恢复之前的 provider config |
 | 没有可复用的 provider history | DeepSeek 使用自己的 `deepseek_bridge` provider；其他 provider 的 histories 不会被改动，但可能暂时隐藏 | 恢复之前的 config |
 
@@ -220,6 +220,7 @@ ChatGPT cloud history 仍然需要 ChatGPT sign-in。Codex 的 local history 可
 codex-deepseek-bridge doctor        # 检查 bridge 是否健康、配置是否有效
 codex-deepseek-bridge doctor --live # 做一次真实 DeepSeek 调用，端到端检查
 codex-deepseek-bridge report        # 打开本地 report
+codex-deepseek-bridge start         # 需要时重新启动本地 bridge
 codex-deepseek-bridge restore       # 把 Codex 恢复到之前的状态
 ```
 
@@ -250,6 +251,7 @@ codex-deepseek-bridge setup
 ## 文档
 
 - [Architecture](docs/architecture.md)
+- [FAQ](docs/faq.md)
 - [Configuration and platforms](docs/platforms-and-upgrades.md)
 - [Cache and the report](docs/cache-and-observability.md)
 - [Privacy and network](docs/privacy-and-network.md)
