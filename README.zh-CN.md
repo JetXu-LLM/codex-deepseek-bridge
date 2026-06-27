@@ -214,6 +214,12 @@ ChatGPT cloud history 仍然需要 ChatGPT sign-in。Codex 的 local history 可
 | 已有 custom/API-key provider，例如 `codex` | setup 可能复用这个 provider id，所以这些 local chats 仍然可见，只是现在路由到 DeepSeek | 恢复之前的 provider config |
 | 没有可复用的 provider history | DeepSeek 使用自己的 `deepseek_bridge` provider；其他 provider 的 histories 不会被改动，但可能暂时隐藏 | 恢复之前的 config |
 
+如果你希望后续在官方 OpenAI 设置和 DeepSeek 之间切换时不再接触 Terminal，可以试试社区配套 app：
+[Codex Model Switcher](https://github.com/rubickguo/codex-model-switcher)。它会下载这个 bridge、
+把 DeepSeek key 保存在本机、启动/停止 bridge、同步 Codex Desktop 的本地 thread index，让聊天列表
+在 GPT 和 DeepSeek 模式之间保持可见，并且可以把 Codex 配置重置回首次捕获的状态。它不是 bridge 的一部分，
+也不改变请求代理逻辑。
+
 ## 日常使用
 
 ```bash
