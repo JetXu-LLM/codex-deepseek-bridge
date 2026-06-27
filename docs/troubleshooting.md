@@ -124,6 +124,11 @@ without overriding reserved built-in provider IDs:
   `deepseek_bridge` provider. In those cases old chats are unchanged but may be hidden while
   DeepSeek is active; `restore` brings the previous config back.
 
+If you want a graphical switcher that keeps the local Codex Desktop chat list visible while moving
+between GPT/OpenAI mode and DeepSeek mode, see the community companion app
+[Codex Model Switcher](https://github.com/rubickguo/codex-model-switcher). It uses this bridge for
+the DeepSeek transport and separately syncs Codex Desktop's local thread index during mode switches.
+
 ChatGPT cloud-only history is separate. If `doctor` says `Codex login: api-key`, Codex still has no
 ChatGPT token for cloud history endpoints. To recover ChatGPT-backed cloud history while keeping the
 stored DeepSeek key, sign out of API-key auth in Codex, sign in with ChatGPT, then run

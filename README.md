@@ -219,6 +219,13 @@ provider id, so `restore` is the reliable way to return to the exact previous se
 | Existing custom/API-key provider such as `codex` | Setup may reuse that provider id so those local chats stay visible, now routed through DeepSeek | Previous provider config returns |
 | No reusable provider history | DeepSeek uses its own `deepseek_bridge` provider; other provider histories are unchanged but may be hidden | Previous config returns |
 
+Prefer a small GUI for switching between the official OpenAI setup and DeepSeek without touching
+Terminal again? [Codex Model Switcher](https://github.com/rubickguo/codex-model-switcher) is a
+community companion app that downloads this bridge, stores the DeepSeek key locally, starts/stops
+the bridge, syncs Codex Desktop's local thread index so the chat list stays visible across GPT and
+DeepSeek modes, and can reset Codex config back to the first captured state. It is not part of the
+bridge and does not change how requests are proxied.
+
 ## Daily use
 
 ```bash
